@@ -312,6 +312,7 @@ export function createApp(root) {
   let coachInsight = null;
   let moveHistory = [];
   let postMatchSummary = null;
+  let postMatchTab = "summary";
   let dismissedPostMatchKey = "";
 
   function formatMove(move) {
@@ -562,6 +563,65 @@ export function createApp(root) {
     };
   }
 
+  function buildOnlineReviewMatch(room) {
+    return {
+      code: room.code,
+      variant: room.variant,
+      status: room.status,
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+      winner: room.winner,
+      state: room.state,
+      players: room.players,
+      moveHistory: room.moveHistory ?? [],
+      ratingDelta: room.ratingDelta ?? null,
+    };
+  }
+
+  function analysisStatsByColor(entries) {
+    const base = {
+      good: 0,
+      inaccuracy: 0,
+      mistake: 0,
+      blunder: 0,
+      total: 0,
+      accuracy: 0,
+    };
+
+    const stats = {
+      white: { ...base },
+      black: { ...base },
+    };
+
+    for (const entry of entries) {
+      const color = entry?.player;
+      const verdict = entry?.insight?.verdict ?? "good";
+
+      if (!stats[color]) {
+        continue;
+      }
+
+      if (stats[color][verdict] !== undefined) {
+        stats[color][verdict] += 1;
+      }
+
+      stats[color].total += 1;
+    }
+
+    for (const color of ["white", "black"]) {
+      const side = stats[color];
+      const score =
+        side.good * 1 +
+        side.inaccuracy * 0.7 +
+        side.mistake * 0.35 +
+        side.blunder * 0;
+
+      side.accuracy = side.total ? Math.round((score / side.total) * 100) : 0;
+    }
+
+    return stats;
+  }
+
   function openMatchReview(match, ply = null) {
     ephemeralMatch = null;
     pendingReplayPly = ply;
@@ -625,6 +685,7 @@ export function createApp(root) {
     }
 
     postMatchSummary = nextSummary;
+    postMatchTab = "summary";
   }
 
   function ensureSelectedHistoryCode() {
@@ -788,8 +849,9 @@ export function createApp(root) {
         opponentName: opponentPlayer?.displayName ?? "Opponent",
         opponentSubtitle: opponentPlayer ? `${opponentPlayer.country} · ${variantDisplayName(getVariantConfig(room.variant))}` : variantDisplayName(getVariantConfig(room.variant)),
         ratingDelta: selfColor ? room.ratingDelta?.[selfColor] ?? null : null,
+        match: buildOnlineReviewMatch(room),
         reviewLabel: "Open game review",
-      onReview: () => openMatchReview({
+        onReview: () => openMatchReview({
           code: room.code,
         }, room.moveHistory?.length ?? 0),
       });
@@ -977,6 +1039,7 @@ export function createApp(root) {
         opponentName,
         opponentSubtitle: variantLabel,
         ratingDelta: null,
+        match: reviewMatch,
         reviewLabel: "Open game review",
         onReview: () => openTemporaryReview(reviewMatch),
       });
@@ -1603,22 +1666,111 @@ export function createApp(root) {
     const delta = postMatchSummary.ratingDelta;
     const deltaText = delta ? `${delta.change >= 0 ? "+" : ""}${delta.change} ELO` : null;
     const ratingText = delta ? `${delta.before} -> ${delta.after}` : null;
+    const reviewMatch = postMatchSummary.match ?? null;
+    const reviewAnalysis = reviewMatch ? analyzeMatchMoves(reviewMatch) : [];
+    const colorStats = analysisStatsByColor(reviewAnalysis);
+    const currentSide = gameMode === "online" ? onlineRoom?.currentColor ?? "white" : aiColor === "white" ? "black" : "white";
+    const opponentSide = currentSide === "white" ? "black" : "white";
+    const currentLabel =
+      gameMode === "online"
+        ? `You (${playerDisplayName(currentSide)})`
+        : gameMode === "ai"
+          ? "You"
+          : playerDisplayName(currentSide);
+    const opponentLabel =
+      gameMode === "online"
+        ? postMatchSummary.opponentName
+        : gameMode === "ai"
+          ? postMatchSummary.opponentName
+          : playerDisplayName(opponentSide);
+    const activeMoves = reviewAnalysis;
+    const maxLoss = Math.max(1, ...reviewAnalysis.map((entry) => entry.insight?.scoreLoss ?? 0));
 
     return `
       <div class="match-end-screen">
         <div class="panel panel--match-end">
-          <div class="panel__eyebrow">Match Ended</div>
+          <button type="button" class="post-match-close" id="post-match-close-btn" aria-label="Close">x</button>
+          <div class="panel__eyebrow">Game Review</div>
           <h2 class="stage__title">${escapeHtml(postMatchSummary.headline)}</h2>
-          <div class="routes__list">
-            <div class="move-log"><strong>${escapeHtml(postMatchSummary.opponentName)}</strong></div>
-            <div class="routes__hint">${escapeHtml(postMatchSummary.opponentSubtitle ?? "")}</div>
-            ${deltaText ? `<div class="routes__hint"><strong>${escapeHtml(deltaText)}</strong> · ${escapeHtml(ratingText)}</div>` : ""}
-            <div class="routes__hint">Review is available for this game.</div>
+          <div class="routes__hint">vs ${escapeHtml(postMatchSummary.opponentName)} · ${escapeHtml(postMatchSummary.opponentSubtitle ?? "")}</div>
+          <div class="post-match-tabs">
+            <button type="button" class="route-btn post-match-tab ${postMatchTab === "summary" ? "page-nav__btn--active" : ""}" data-post-match-tab="summary">Summary</button>
+            <button type="button" class="route-btn post-match-tab ${postMatchTab === "moves" ? "page-nav__btn--active" : ""}" data-post-match-tab="moves">Moves</button>
+            <button type="button" class="route-btn post-match-tab ${postMatchTab === "advantage" ? "page-nav__btn--active" : ""}" data-post-match-tab="advantage">Advantage</button>
           </div>
+          ${
+            postMatchTab === "summary"
+              ? `
+                <div class="post-match-summary">
+                  <div class="post-match-side">
+                    <div class="post-match-side__title">${escapeHtml(currentLabel)}</div>
+                    <div class="accuracy-ring" style="--accuracy:${colorStats[currentSide].accuracy};">
+                      <div class="accuracy-ring__inner">
+                        <strong>${colorStats[currentSide].accuracy}%</strong>
+                        <span>accuracy</span>
+                      </div>
+                    </div>
+                    ${deltaText ? `<div class="token">${escapeHtml(deltaText)}</div>` : ""}
+                  </div>
+                  <div class="post-match-side">
+                    <div class="post-match-side__title">${escapeHtml(opponentLabel)}</div>
+                    <div class="accuracy-ring accuracy-ring--muted" style="--accuracy:${colorStats[opponentSide].accuracy};">
+                      <div class="accuracy-ring__inner">
+                        <strong>${colorStats[opponentSide].accuracy}%</strong>
+                        <span>accuracy</span>
+                      </div>
+                    </div>
+                    ${ratingText ? `<div class="routes__hint">${escapeHtml(ratingText)}</div>` : ""}
+                  </div>
+                </div>
+                <div class="post-match-table">
+                  <div class="post-match-table__head">Move type</div>
+                  <div class="post-match-table__head">You</div>
+                  <div class="post-match-table__head">Opp</div>
+                  ${["good", "inaccuracy", "mistake", "blunder"]
+                    .map(
+                      (verdict) => `
+                        <div class="post-match-table__cell">${escapeHtml(verdictLabel(verdict))}</div>
+                        <div class="post-match-table__cell">${colorStats[currentSide][verdict]}</div>
+                        <div class="post-match-table__cell">${colorStats[opponentSide][verdict]}</div>
+                      `,
+                    )
+                    .join("")}
+                </div>
+              `
+              : postMatchTab === "moves"
+                ? `
+                  <div class="routes__list">
+                    ${activeMoves.length
+                      ? activeMoves
+                          .map(
+                            (entry) => `
+                              <div class="move-log">
+                                <strong>${entry.ply}. ${escapeHtml(entry.text)}</strong><br />
+                                ${escapeHtml(entry.player)} · ${escapeHtml(entry.insight?.verdict ?? "good")} · loss ${(entry.insight?.scoreLoss ?? 0).toFixed(1)}
+                              </div>
+                            `,
+                          )
+                          .join("")
+                      : `<div class="routes__hint">No analyzed moves yet.</div>`}
+                  </div>
+                `
+                : `
+                  <div class="review-chart post-match-chart">
+                    ${reviewAnalysis
+                      .map((entry) => {
+                        const verdict = entry.insight?.verdict ?? "good";
+                        const loss = Math.max(6, Math.round(((entry.insight?.scoreLoss ?? 0) / maxLoss) * 100));
+                        return `<div class="review-bar review-bar--${verdict}" style="height:${loss}%"></div>`;
+                      })
+                      .join("")}
+                  </div>
+                  <div class="routes__hint">Each bar shows the score loss of one move. Bigger bars indicate larger mistakes.</div>
+                `
+          }
           <div class="auth-switches auth-switches--wide">
             <button type="button" class="route-btn" id="post-match-review-btn">${escapeHtml(postMatchSummary.reviewLabel ?? "Open review")}</button>
             <button type="button" class="route-btn" id="post-match-restart-btn">Play again</button>
-            <button type="button" class="route-btn" id="post-match-close-btn">Close</button>
           </div>
         </div>
       </div>
@@ -1820,7 +1972,6 @@ export function createApp(root) {
               <button type="button" class="route-btn" id="replay-end-btn">End</button>
             </div>
           </div>
-          ${renderPostMatchOverlay()}
         </section>
       `,
       right: `
@@ -2031,6 +2182,7 @@ export function createApp(root) {
           ${centerMarkup}
           <aside class="hud hud--right">${rightMarkup}</aside>
         </main>
+        ${renderPostMatchOverlay()}
       `;
     } else {
 
@@ -2278,33 +2430,10 @@ export function createApp(root) {
             }
           </div>
 
-          <div class="panel panel--system">
-            <div class="panel__heading">System trace</div>
-            <div class="system-list">
-              <div><strong>AI status:</strong> ${isAIThinking ? "thinking" : "idle"}</div>
-              <div><strong>AI strategy:</strong> ${
-                gameMode === "ai"
-                  ? currentVariantAIStatus?.strategy ?? "unknown"
-                  : gameMode === "online"
-                    ? "server_authoritative"
-                    : "n/a"
-              }</div>
-              <div><strong>Provider type:</strong> ${
-                gameMode === "ai"
-                  ? currentVariantAIStatus?.type ?? "unknown"
-                  : gameMode === "online"
-                    ? "multiplayer_room"
-                    : "n/a"
-              }</div>
-              <div><strong>Board size:</strong> ${variant.boardSize} x ${variant.boardSize}</div>
-              <div><strong>Forced captures:</strong> ${capturePressure > 0 ? "yes" : "no"}</div>
-              ${aiFallbackReason ? `<div><strong>Fallback:</strong> ${aiFallbackReason}</div>` : ""}
-            </div>
-          </div>
-
           ${renderLeaderboardPanel()}
         </aside>
       </main>
+      ${renderPostMatchOverlay()}
     `;
     }
 
@@ -2359,6 +2488,13 @@ export function createApp(root) {
 
     root.querySelector("#post-match-close-btn")?.addEventListener("click", () => {
       hidePostMatchSummary();
+    });
+
+    root.querySelectorAll("[data-post-match-tab]").forEach((button) => {
+      button.addEventListener("click", () => {
+        postMatchTab = button.dataset.postMatchTab ?? "summary";
+        render();
+      });
     });
 
     root.querySelectorAll(".profile-view-btn").forEach((button) => {
