@@ -1,114 +1,146 @@
 # Night Checkers
 
-Night Checkers is a stylized web platform for draughts with a serious game core underneath and an indie pixel-art presentation on top.
+`Night Checkers` — это современная веб-платформа для игры в шашки, в которой упор сделан не только на правила и играбельность, но и на выразительный `UI/UX`.
 
-It is built for players who want more than a plain board:
-- three official variants in one product: Russian, English, International 10x10
-- AI opponent with multiple difficulty levels
-- post-move AI Coach feedback
-- route-aware move generation with mandatory captures, promotion, kings, and variant-specific rules
-- two render modes: `Pseudo-3D` and lightweight `2D Lite`
-- skin system with multiple themed pixel-art sets
+Это не просто “сайт с доской”, а прототип продукта с собственной визуальной идентичностью: мрачная пиксельная стилистика, игровой интерфейс, система скинов, AI Coach и мультиплеерная основа.
 
-## Why this is valuable
+## Что сделано
 
-Most checkers sites stop at “playable”. Night Checkers is positioned as a more distinctive product:
-- a stronger rules core than a demo board
-- a recognizable visual identity instead of generic board-game UI
-- room for product expansion: multiplayer by link, rankings, accounts, premium skins, coaching
+В проекте реализованы:
 
-## Current scope
+- три официальных варианта шашек в одном продукте:
+  - русские
+  - английские
+  - международные `10x10`
+- полноценный `game core` с проверкой правил:
+  - диагональные ходы
+  - обязательные взятия
+  - мультивзятия
+  - превращение в дамку
+  - определение победы
+  - различия правил между вариантами
+- игра против AI
+- `AI Coach`, который после ходов показывает оценку качества решения
+- локальная игра
+- онлайн-комнаты
+- профиль игрока
+- рейтинг
+- история матчей
+- экран разбора партии
+- система скинов
+- стилизованный pixel-art интерфейс с акцентом на атмосферу
 
-Implemented now:
-- full local play for:
-  - Russian draughts
-  - English checkers
-  - International draughts 10x10
-- AI play
-- AI Coach panel
-- move history
-- skin switching
-- responsive browser UI
+## Для кого этот продукт
 
-AI policy on Linux:
-- `international` uses native `Scan 3.1`
-- `english` uses the built-in engine
-- `russian` uses the built-in engine
+Проект рассчитан на игроков, которым мало просто “играбельной шашечной доски”.
 
-## Tech stack
+Целевая аудитория:
 
-- Vanilla JS
-- Node.js HTTP server
-- Custom rules engine
-- Native `Scan 3.1` integration for international draughts
+- игроки, которым важны официальные правила нескольких вариантов шашек
+- пользователи, которым нужен более современный и запоминающийся интерфейс
+- люди, которым интересен разбор ошибок и обучение через `AI Coach`
+- аудитория, привыкшая к продуктовому уровню интерфейсов вроде `chess.com`, но в более яркой и игровой подаче
 
-## Run locally
+## На чём был сделан акцент
 
-Requirements:
-- Node.js 22+
-- Linux for native `Scan` support
+Главный акцент в проекте был сделан на `UI/UX`.
 
-Install and run:
+Большая часть шашечных сайтов выглядит утилитарно: доска, список ходов, минимальный интерфейс. Здесь была задача сделать продукт, который визуально выделяется и ощущается скорее как инди-игра, чем как стандартный board-game сайт.
 
-```bash
-npm start
-```
+Вдохновение по визуальному направлению:
 
-Open:
+- `Inscryption`
+- `TETR.IO`
+- другие игры с сильным, узнаваемым интерфейсом и чёткой визуальной атмосферой
+
+Идея была в том, чтобы объединить:
+
+- серьёзный rules engine
+- понятный соревновательный UX
+- необычную игровую подачу
+
+## Ограничение по времени
+
+Проект был сделан за `один день`, хотя изначально расчёт был на `два`.
+
+Из-за этого часть вещей сделана в виде уже работающего прототипа с хорошей архитектурной базой, но с очевидным запасом для дальнейшего развития и полировки.
+
+## Почему проект может быть интересен как продукт
+
+`Night Checkers` отличается не только функциональностью, но и продуктовым потенциалом.
+
+Сильные стороны:
+
+- несколько официальных вариантов шашек в одном месте
+- более сильный `game core`, чем у обычного демо-проекта
+- визуальная айдентика, которая сразу отличает продукт от типовых шашечных сайтов
+- наличие AI-анализа и экрана разбора партии
+- база для роста в сторону полноценного сервиса
+
+## Монетизация
+
+Для проверяющих: у проекта уже есть понятные сценарии монетизации.
+
+Самые реалистичные направления:
+
+- продажа косметических `скинов`
+- премиальные визуальные темы доски и интерфейса
+- `AI Coach` по модели, похожей на `chess.com`
+  - базовый анализ бесплатно
+  - расширенный разбор партий, больше глубины и дополнительные подсказки по подписке
+
+То есть это не просто учебный проект, а прототип, у которого уже видна логика удержания и монетизации.
+
+## Использованный стек
+
+Проект собран на следующем стеке:
+
+- `Vanilla JavaScript`
+- `Node.js`
+- собственный `HTTP server`
+- собственный `rules engine`
+- `SQLite` для хранения данных
+- `WebSocket` для онлайн-режима
+- интеграция с `Scan 3.1` для международных шашек
+
+## Почему выбран такой стек
+
+Преимущества выбранного подхода:
+
+- полный контроль над логикой игры
+- отсутствие избыточной framework-нагрузки
+- быстрый цикл разработки
+- удобное разделение между:
+  - игровым ядром
+  - серверной логикой
+  - UI-слоем
+- возможность дальше безболезненно масштабировать проект в полноценный сервис
+
+## AI-архитектура
+
+На Linux логика AI устроена так:
+
+- `international` использует нативный `Scan 3.1`
+- `english` использует встроенный движок
+- `russian` использует встроенный движок
+
+Это дало хороший баланс между качеством игры, контролем над системой и реальной пригодностью к деплою.
+
+## Структура проекта
 
 ```text
-http://127.0.0.1:4173
+server/         сервер, API, multiplayer, auth, storage
+src/core/       игровое ядро, правила, нотация, AI, coach
+src/ui/         клиентское приложение и интерфейс
+src/assets/     пиксельные ассеты, скины, визуальные темы
+vendor/scan/    движок Scan для международных шашек
 ```
 
-Smoke test:
+## Итог
 
-```bash
-npm run check
-```
+`Night Checkers` — это прототип современной шашечной платформы, где одинаково важны две вещи:
 
-## Deploy
+- сильная игровая логика
+- запоминающийся пользовательский опыт
 
-This project is deployment-ready for Linux hosts that support Docker.
-
-### Docker
-
-Build:
-
-```bash
-docker build -t night-checkers .
-```
-
-Run:
-
-```bash
-docker run --rm -p 4173:4173 night-checkers
-```
-
-Then open:
-
-```text
-http://localhost:4173
-```
-
-### Recommended hosts
-
-- Render
-- Railway
-- Fly.io
-- any Linux VPS with Docker
-
-Use the included `Dockerfile`. The app serves both the frontend and AI API from one Node process.
-
-## Project structure
-
-```text
-server/         HTTP server + AI provider layer
-src/core/       rules engine, move generation, notation, AI coach
-src/ui/         browser app and AI client
-src/assets/     pixel-art assets and skins
-vendor/scan/    native Scan engine for international draughts
-```
-
-## Product pitch
-
-Night Checkers is a modern draughts platform for players who want official rules, AI practice, and a memorable game-like interface. It combines three major variants, coaching feedback, and a themed pixel-art presentation that stands apart from traditional board-game websites.
+Проект показывает не только умение реализовать правила игры, AI и мультиплеерную основу, но и попытку сделать продукт, который визуально и концептуально выделяется на фоне существующих решений.
