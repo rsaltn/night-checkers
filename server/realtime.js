@@ -123,8 +123,9 @@ function sendJson(socket, payload) {
   } catch {}
 }
 
-export function broadcastRoomUpdate(roomSummary) {
-  const sockets = roomSockets.get(roomSummary.code);
+export function broadcastRoomRefresh(roomCode) {
+  const normalizedCode = String(roomCode ?? "").trim().toUpperCase();
+  const sockets = roomSockets.get(normalizedCode);
 
   if (!sockets) {
     return;
@@ -132,8 +133,8 @@ export function broadcastRoomUpdate(roomSummary) {
 
   for (const socket of sockets) {
     sendJson(socket, {
-      type: "room:update",
-      room: roomSummary,
+      type: "room:refresh",
+      code: normalizedCode,
     });
   }
 }

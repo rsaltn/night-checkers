@@ -469,6 +469,19 @@ export function createApp(root) {
         loadLeaderboard();
         loadProfileData();
       },
+      onRoomRefresh(code) {
+        getOnlineRoom(authToken, code)
+          .then((room) => {
+            onlineError = "";
+            syncRoom(room);
+            loadLeaderboard();
+            loadProfileData();
+          })
+          .catch((error) => {
+            onlineError = error.message;
+            render();
+          });
+      },
       onClose() {
         roomSocket = null;
       },

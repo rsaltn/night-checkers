@@ -23,7 +23,7 @@ import {
   joinRoom,
   submitRoomMove,
 } from "./multiplayer-service.js";
-import { attachRealtimeServer, broadcastRoomUpdate } from "./realtime.js";
+import { attachRealtimeServer, broadcastRoomRefresh } from "./realtime.js";
 
 const ROOT_DIR = fileURLToPath(new URL("../", import.meta.url));
 const PORT = Number(process.env.PORT ?? 4173);
@@ -220,7 +220,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === "POST" && url.pathname === "/api/multiplayer/rooms") {
       const user = await requireUserByToken(getBearerToken(request));
       const room = await createRoom(user, await readBody(request));
-      broadcastRoomUpdate(room);
+      broadcastRoomRefresh(room.code);
       sendJson(response, 200, room);
       return;
     }
@@ -242,14 +242,14 @@ const server = http.createServer(async (request, response) => {
 
         if (action === "join") {
           const room = await joinRoom(user, roomCode);
-          broadcastRoomUpdate(room);
+          broadcastRoomRefresh(room.code);
           sendJson(response, 200, room);
           return;
         }
 
         if (action === "move") {
           const room = await submitRoomMove(user, roomCode, body.move);
-          broadcastRoomUpdate(room);
+          broadcastRoomRefresh(room.code);
           sendJson(response, 200, room);
           return;
         }

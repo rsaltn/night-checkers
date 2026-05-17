@@ -117,6 +117,8 @@ export function connectRoomSocket(token, code, handlers) {
 
       if (payload.type === "room:update") {
         handlers?.onRoomUpdate?.(payload.room);
+      } else if (payload.type === "room:refresh") {
+        handlers?.onRoomRefresh?.(payload.code);
       }
     } catch {}
   });
