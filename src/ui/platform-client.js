@@ -97,6 +97,10 @@ export function createOnlineRoom(token, payload) {
   });
 }
 
+export function listPublicOnlineRooms() {
+  return request("/api/multiplayer/rooms/public");
+}
+
 export function getOnlineRoom(token, code) {
   return request(`/api/multiplayer/rooms/${encodeURIComponent(code)}`, {
     token,
@@ -138,12 +142,13 @@ export function connectRoomSocket(token, code, handlers) {
   return socket;
 }
 
-export function joinOnlineRoom(token, code) {
+export function joinOnlineRoom(token, code, payload = {}) {
   return request(`/api/multiplayer/rooms/${encodeURIComponent(code)}`, {
     method: "POST",
     token,
     body: {
       action: "join",
+      ...payload,
     },
   });
 }

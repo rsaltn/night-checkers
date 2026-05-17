@@ -5,6 +5,8 @@ import { mutateStore, readStore } from "./store.js";
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const BASE_RATING = 1200;
 const K_FACTOR = 24;
+const SUPPORTED_SKINS = new Set(["cathedral", "ember", "crypt", "arcade"]);
+const SUPPORTED_VISIBILITY = new Set(["private", "public"]);
 
 function nowIso() {
   return new Date().toISOString();
@@ -28,6 +30,16 @@ function ensureRating(ratings, variant) {
   return ratings[variant];
 }
 
+function normalizeSkinKey(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return SUPPORTED_SKINS.has(normalized) ? normalized : "cathedral";
+}
+
+function normalizeVisibility(value) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  return SUPPORTED_VISIBILITY.has(normalized) ? normalized : "private";
+}
+
 function expectedScore(selfRating, opponentRating) {
   return 1 / (1 + 10 ** ((opponentRating - selfRating) / 400));
 }
@@ -48,12 +60,41 @@ function applyEloUpdate(whiteUser, blackUser, variant, winner) {
   blackUser.ratings[variant] = Math.round(blackRating + K_FACTOR * (blackScore - blackExpected));
 }
 
-function serializePlayer(user, color, variant) {
+function ratingDeltaSummary(room, whiteUser, blackUser, variant) {
+  if (
+    !room.ratingAppliedAt ||
+    !whiteUser ||
+    !blackUser ||
+    room.whiteRatingBefore == null ||
+    room.blackRatingBefore == null
+  ) {
+    return null;
+  }
+
+  const whiteAfter = whiteUser.ratings?.[variant] ?? BASE_RATING;
+  const blackAfter = blackUser.ratings?.[variant] ?? BASE_RATING;
+
+  return {
+    white: {
+      before: room.whiteRatingBefore,
+      after: whiteAfter,
+      change: whiteAfter - room.whiteRatingBefore,
+    },
+    black: {
+      before: room.blackRatingBefore,
+      after: blackAfter,
+      change: blackAfter - room.blackRatingBefore,
+    },
+  };
+}
+
+function serializePlayer(user, color, variant, skinKey) {
   return {
     id: user.id,
     displayName: user.displayName,
     country: user.country,
     color,
+    skinKey: normalizeSkinKey(skinKey),
     rating: user.ratings?.[variant] ?? BASE_RATING,
   };
 }
@@ -67,6 +108,9 @@ function matchRecordForUser(room, store, userId) {
   const selfColor = room.whiteUserId === userId ? "white" : "black";
   const opponentId = selfColor === "white" ? room.blackUserId : room.whiteUserId;
   const opponent = opponentId ? store.users.find((user) => user.id === opponentId) : null;
+  const selfUser = store.users.find((user) => user.id === userId) ?? null;
+  const whiteUser = room.whiteUserId ? store.users.find((user) => user.id === room.whiteUserId) : null;
+  const blackUser = room.blackUserId ? store.users.find((user) => user.id === room.blackUserId) : null;
   const result =
     !room.state.winner
       ? room.status === "finished"
@@ -79,6 +123,7 @@ function matchRecordForUser(room, store, userId) {
   return {
     code: room.code,
     variant,
+    visibility: room.visibility ?? "private",
     status: room.status,
     result,
     playerColor: selfColor,
@@ -90,9 +135,16 @@ function matchRecordForUser(room, store, userId) {
       ? {
           displayName: opponent.displayName,
           country: opponent.country,
+          skinKey: selfColor === "white" ? room.blackSkinKey : room.whiteSkinKey,
           rating: opponent.ratings?.[variant] ?? BASE_RATING,
         }
       : null,
+    ratingDelta: (() => {
+      const summary = ratingDeltaSummary(room, whiteUser, blackUser, variant);
+      return selfColor && summary ? summary[selfColor] : null;
+    })(),
+    playerRating: selfUser?.ratings?.[variant] ?? BASE_RATING,
+    playerSkinKey: selfColor === "white" ? room.whiteSkinKey : room.blackSkinKey,
     moveHistory: room.moveHistory ?? [],
   };
 }
@@ -109,10 +161,11 @@ function publicMatchSummary(room, store) {
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     winner: room.state.winner,
+    ratingDelta: ratingDeltaSummary(room, whiteUser, blackUser, variant),
     state: room.state,
     players: {
-      white: whiteUser ? serializePlayer(whiteUser, "white", variant) : null,
-      black: blackUser ? serializePlayer(blackUser, "black", variant) : null,
+      white: whiteUser ? serializePlayer(whiteUser, "white", variant, room.whiteSkinKey) : null,
+      black: blackUser ? serializePlayer(blackUser, "black", variant, room.blackSkinKey) : null,
     },
     moveHistory: room.moveHistory ?? [],
   };
@@ -128,16 +181,18 @@ function roomSummary(room, store, currentUserId = null) {
   return {
     code: room.code,
     variant: room.variant,
+    visibility: room.visibility ?? "private",
     status: room.status,
     createdAt: room.createdAt,
     updatedAt: room.updatedAt,
     winner: room.state.winner,
     currentColor,
+    ratingDelta: ratingDeltaSummary(room, whiteUser, blackUser, variant),
     inviteCode: room.code,
     state: room.state,
     players: {
-      white: whiteUser ? serializePlayer(whiteUser, "white", variant) : null,
-      black: blackUser ? serializePlayer(blackUser, "black", variant) : null,
+      white: whiteUser ? serializePlayer(whiteUser, "white", variant, room.whiteSkinKey) : null,
+      black: blackUser ? serializePlayer(blackUser, "black", variant, room.blackSkinKey) : null,
     },
     moveHistory: room.moveHistory ?? [],
   };
@@ -147,8 +202,10 @@ function assertVariant(variant) {
   getVariantConfig(variant);
 }
 
-export async function createRoom(currentUser, { variant }) {
+export async function createRoom(currentUser, { variant, skinKey, visibility }) {
   assertVariant(variant);
+  const normalizedSkinKey = normalizeSkinKey(skinKey);
+  const normalizedVisibility = normalizeVisibility(visibility);
 
   return mutateStore(async (store) => {
     let code = createRoomCode();
@@ -160,9 +217,14 @@ export async function createRoom(currentUser, { variant }) {
     const room = {
       code,
       variant,
+      visibility: normalizedVisibility,
       status: "waiting",
       whiteUserId: currentUser.id,
       blackUserId: null,
+      whiteSkinKey: normalizedSkinKey,
+      blackSkinKey: null,
+      whiteRatingBefore: currentUser.ratings?.[variant] ?? BASE_RATING,
+      blackRatingBefore: null,
       state: createGame(variant),
       moveHistory: [],
       createdAt: nowIso(),
@@ -175,8 +237,40 @@ export async function createRoom(currentUser, { variant }) {
   });
 }
 
-export async function joinRoom(currentUser, roomCode) {
+export async function listPublicRooms() {
+  const store = await readStore();
+
+  return store.rooms
+    .filter((room) => room.visibility === "public")
+    .filter((room) => room.status === "waiting")
+    .map((room) => {
+      const owner = room.whiteUserId
+        ? store.users.find((user) => user.id === room.whiteUserId)
+        : null;
+
+      return {
+        code: room.code,
+        variant: room.variant,
+        visibility: room.visibility,
+        status: room.status,
+        createdAt: room.createdAt,
+        updatedAt: room.updatedAt,
+        host: owner
+          ? {
+              displayName: owner.displayName,
+              country: owner.country,
+              rating: owner.ratings?.[room.variant] ?? BASE_RATING,
+              skinKey: room.whiteSkinKey ?? "cathedral",
+            }
+          : null,
+      };
+    })
+    .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+}
+
+export async function joinRoom(currentUser, roomCode, skinKey) {
   const normalizedCode = String(roomCode ?? "").trim().toUpperCase();
+  const normalizedSkinKey = normalizeSkinKey(skinKey);
 
   return mutateStore(async (store) => {
     const room = store.rooms.find((entry) => entry.code === normalizedCode);
@@ -189,8 +283,19 @@ export async function joinRoom(currentUser, roomCode) {
       throw new Error("Room is already full");
     }
 
+    if (room.whiteUserId === currentUser.id) {
+      room.whiteSkinKey = normalizedSkinKey;
+    }
+
+    if (room.blackUserId === currentUser.id) {
+      room.blackSkinKey = normalizedSkinKey;
+      room.blackRatingBefore ??= currentUser.ratings?.[room.variant] ?? BASE_RATING;
+    }
+
     if (!room.blackUserId && room.whiteUserId !== currentUser.id) {
       room.blackUserId = currentUser.id;
+      room.blackSkinKey = normalizedSkinKey;
+      room.blackRatingBefore = currentUser.ratings?.[room.variant] ?? BASE_RATING;
       room.status = "playing";
       room.updatedAt = nowIso();
     }

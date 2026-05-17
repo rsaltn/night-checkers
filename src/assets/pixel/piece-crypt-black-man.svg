@@ -1,21 +1,12 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
-  <rect width="32" height="32" fill="none"/>
-  <rect x="10" y="2" width="12" height="2" fill="#7acfe0"/>
-  <rect x="6" y="4" width="20" height="2" fill="#245466"/>
-  <rect x="4" y="6" width="24" height="2" fill="#112a35"/>
-  <rect x="2" y="8" width="28" height="10" fill="#08131a"/>
-  <rect x="4" y="18" width="24" height="4" fill="#0d242d"/>
-  <rect x="6" y="22" width="20" height="2" fill="#143745"/>
-  <rect x="8" y="24" width="16" height="2" fill="#2f6d7f"/>
-  <rect x="10" y="26" width="12" height="2" fill="#9bf7ff"/>
-  <rect x="8" y="10" width="2" height="8" fill="#163946"/>
-  <rect x="22" y="10" width="2" height="8" fill="#7ff0ff"/>
-  <rect x="12" y="12" width="8" height="2" fill="#d8ffff"/>
-  <rect x="10" y="16" width="12" height="2" fill="#7ff0ff"/>
-  <rect x="12" y="28" width="8" height="2" fill="#020507"/>
-  <rect x="8" y="30" width="16" height="2" fill="#000000"/>
-  <rect x="8" y="4" width="2" height="2" fill="#000000"/>
-  <rect x="22" y="4" width="2" height="2" fill="#000000"/>
-  <rect x="4" y="8" width="2" height="12" fill="#000000"/>
-  <rect x="26" y="8" width="2" height="12" fill="#000000"/>
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <ellipse cx="50" cy="58" rx="42" ry="38" fill="#001021" />
+  <path d="M8 50 A42 38 0 0 0 92 50 L92 58 A42 38 0 0 1 8 58 Z" fill="#002F6C" />
+  
+  <ellipse cx="50" cy="50" rx="42" ry="38" fill="#002F6C" stroke="#000" stroke-width="2" />
+  <ellipse cx="50" cy="46" rx="38" ry="34" fill="#01579B" />
+  
+  <!-- Frozen Ring -->
+  <ellipse cx="50" cy="46" rx="28" ry="22" fill="none" stroke="#00B0FF" stroke-width="6" opacity="0.4" />
+  <rect x="44" y="42" width="12" height="10" fill="#00E5FF" opacity="0.2" />
+  <path d="M25 35 L35 25" stroke="white" stroke-width="2" opacity="0.2" />
 </svg>

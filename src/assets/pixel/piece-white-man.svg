@@ -1,32 +1,25 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
-  <rect width="32" height="32" fill="none"/>
-  <rect x="8" y="4" width="16" height="2" fill="#fff9d9"/>
-  <rect x="6" y="6" width="20" height="2" fill="#fff9d9"/>
-  <rect x="4" y="8" width="24" height="2" fill="#fff9d9"/>
-  <rect x="4" y="10" width="24" height="2" fill="#f1d39a"/>
-  <rect x="2" y="12" width="28" height="2" fill="#f1d39a"/>
-  <rect x="2" y="14" width="28" height="8" fill="#ddb16c"/>
-  <rect x="4" y="22" width="24" height="2" fill="#c48e50"/>
-  <rect x="6" y="24" width="20" height="2" fill="#8e5d32"/>
-  <rect x="10" y="12" width="4" height="4" fill="#fff9d9"/>
-  <rect x="18" y="12" width="4" height="4" fill="#fff9d9"/>
-  <rect x="12" y="18" width="8" height="2" fill="#6b4223"/>
-  <rect x="10" y="26" width="12" height="2" fill="#6b4223"/>
-  <rect x="12" y="28" width="8" height="2" fill="#2e170c"/>
-  <rect x="6" y="30" width="20" height="2" fill="#0b0603"/>
-  <rect x="8" y="2" width="16" height="2" fill="#0b0603"/>
-  <rect x="6" y="4" width="2" height="2" fill="#0b0603"/>
-  <rect x="24" y="4" width="2" height="2" fill="#0b0603"/>
-  <rect x="4" y="6" width="2" height="2" fill="#0b0603"/>
-  <rect x="26" y="6" width="2" height="2" fill="#0b0603"/>
-  <rect x="2" y="8" width="2" height="14" fill="#0b0603"/>
-  <rect x="28" y="8" width="2" height="14" fill="#0b0603"/>
-  <rect x="4" y="22" width="2" height="2" fill="#0b0603"/>
-  <rect x="26" y="22" width="2" height="2" fill="#0b0603"/>
-  <rect x="6" y="24" width="2" height="2" fill="#0b0603"/>
-  <rect x="24" y="24" width="2" height="2" fill="#0b0603"/>
-  <rect x="8" y="26" width="2" height="2" fill="#0b0603"/>
-  <rect x="22" y="26" width="2" height="2" fill="#0b0603"/>
-  <rect x="10" y="28" width="2" height="2" fill="#0b0603"/>
-  <rect x="20" y="28" width="2" height="2" fill="#0b0603"/>
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- Bottom Shadow -->
+  <ellipse cx="50" cy="58" rx="42" ry="38" fill="#000" opacity="0.3" />
+  
+  <!-- Cylinder Side (The 3D height) -->
+  <path d="M8 50 A42 38 0 0 0 92 50 L92 58 A42 38 0 0 1 8 58 Z" fill="#5D5245" />
+  <path d="M8 50 A42 38 0 0 0 92 50 L92 54 A42 38 0 0 1 8 54 Z" fill="#8A7B6A" />
+
+  <!-- Piece Body -->
+  <ellipse cx="50" cy="50" rx="42" ry="38" fill="#8A7B6A" stroke="#483B32" stroke-width="2" />
+  
+  <!-- Surface Bevel (Top Face Side) -->
+  <ellipse cx="50" cy="46" rx="38" ry="34" fill="#B7A692" />
+  
+  <!-- Top Surface Detail -->
+  <ellipse cx="50" cy="46" rx="30" ry="26" fill="none" stroke="#8A7B6A" stroke-width="4" stroke-dasharray="8 4" />
+  <ellipse cx="50" cy="46" rx="32" ry="28" fill="none" stroke="#F5EDE3" stroke-width="1" opacity="0.3" />
+  
+  <!-- Center Inset -->
+  <ellipse cx="50" cy="46" rx="15" ry="12" fill="#D2C4B1" opacity="0.5" />
+  <path d="M40 40 L45 35 M60 55 L65 60" stroke="#483B32" stroke-width="2" opacity="0.3" />
+
+  <!-- Highlights -->
+  <path d="M20 40 Q30 25 50 25" fill="none" stroke="white" stroke-width="2" opacity="0.2" />
 </svg>

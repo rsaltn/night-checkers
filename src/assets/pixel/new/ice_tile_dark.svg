@@ -1,0 +1,19 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- Deep Ice -->
+  <rect width="100" height="100" fill="#001824" />
+  
+  <!-- Internal Reflections (Crystalline) -->
+  <path d="M10 10 L40 40 L10 70 Z" fill="#00354D" opacity="0.3" />
+  <path d="M90 90 L60 60 L90 30 Z" fill="#00354D" opacity="0.3" />
+  
+  <!-- Frost dithering -->
+  <rect x="0" y="0" width="4" height="4" fill="#0083B0" opacity="0.2" />
+  <rect x="96" y="96" width="4" height="4" fill="#0083B0" opacity="0.2" />
+
+  <!-- Bevels -->
+  <path d="M0 0 H100 L94 6 H6 L0 0 Z" fill="#00354D" opacity="0.5" />
+  <path d="M0 100 H100 L94 94 H6 L0 100 Z" fill="#000" opacity="0.4" />
+  
+  <!-- Bright edge -->
+  <path d="M6 6 H94" stroke="#00BCD4" stroke-width="1" opacity="0.2" />
+</svg>

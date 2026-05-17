@@ -1,0 +1,16 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- Dark Metal Base -->
+  <rect width="100" height="100" fill="#050510" />
+  
+  <!-- Circuit Paths -->
+  <path d="M0 50 H45 V0 M55 100 V55 H100" fill="none" stroke="#1A1A30" stroke-width="4" />
+  <path d="M45 45 H55 V55 H45 Z" fill="#00BFFF" opacity="0.1" />
+  
+  <!-- Outer Bevel (Neon glow) -->
+  <path d="M0 0 H100 V4 H0 Z" fill="#00BFFF" opacity="0.05" />
+  <path d="M0 96 H100 V100 H0 Z" fill="#1A1A30" />
+
+  <!-- Corner details -->
+  <rect x="2" y="2" width="6" height="6" fill="#00BFFF" opacity="0.1" />
+  <rect x="92" y="92" width="6" height="6" fill="#00BFFF" opacity="0.1" />
+</svg>

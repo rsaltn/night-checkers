@@ -21,6 +21,14 @@ const DEFAULT_STORE = {
 let queue = Promise.resolve();
 let db;
 
+function ensureColumn(database, tableName, columnName, columnDefinition) {
+  const columns = database.prepare(`PRAGMA table_info(${tableName})`).all();
+
+  if (!columns.some((column) => column.name === columnName)) {
+    database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
+}
+
 function ensureDatabase() {
   if (db) {
     return db;
@@ -64,9 +72,14 @@ function ensureDatabase() {
     CREATE TABLE IF NOT EXISTS rooms (
       code TEXT PRIMARY KEY,
       variant TEXT NOT NULL,
+      visibility TEXT NOT NULL,
       status TEXT NOT NULL,
       white_user_id TEXT,
       black_user_id TEXT,
+      white_skin_key TEXT,
+      black_skin_key TEXT,
+      white_rating_before INTEGER,
+      black_rating_before INTEGER,
       state_json TEXT NOT NULL,
       move_history_json TEXT NOT NULL,
       created_at TEXT NOT NULL,
@@ -74,6 +87,11 @@ function ensureDatabase() {
       rating_applied_at TEXT
     );
   `);
+  ensureColumn(db, "rooms", "visibility", "TEXT NOT NULL DEFAULT 'private'");
+  ensureColumn(db, "rooms", "white_skin_key", "TEXT");
+  ensureColumn(db, "rooms", "black_skin_key", "TEXT");
+  ensureColumn(db, "rooms", "white_rating_before", "INTEGER");
+  ensureColumn(db, "rooms", "black_rating_before", "INTEGER");
 
   maybeMigrateLegacyJson(db);
   return db;
@@ -162,16 +180,21 @@ function readStoreInternal(database = ensureDatabase()) {
 
   const rooms = database
     .prepare(
-      `SELECT code, variant, status, white_user_id, black_user_id, state_json, move_history_json, created_at, updated_at, rating_applied_at
+      `SELECT code, variant, visibility, status, white_user_id, black_user_id, white_skin_key, black_skin_key, white_rating_before, black_rating_before, state_json, move_history_json, created_at, updated_at, rating_applied_at
        FROM rooms`,
     )
     .all()
     .map((row) => ({
       code: row.code,
       variant: row.variant,
+      visibility: row.visibility,
       status: row.status,
       whiteUserId: row.white_user_id,
       blackUserId: row.black_user_id,
+      whiteSkinKey: row.white_skin_key,
+      blackSkinKey: row.black_skin_key,
+      whiteRatingBefore: row.white_rating_before,
+      blackRatingBefore: row.black_rating_before,
       state: parseJson(row.state_json, null),
       moveHistory: parseJson(row.move_history_json, []),
       createdAt: row.created_at,
@@ -206,8 +229,8 @@ function writeStoreInternal(state, database = ensureDatabase()) {
      VALUES (?, ?, ?, ?)`,
   );
   const insertRoom = database.prepare(
-    `INSERT INTO rooms (code, variant, status, white_user_id, black_user_id, state_json, move_history_json, created_at, updated_at, rating_applied_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO rooms (code, variant, visibility, status, white_user_id, black_user_id, white_skin_key, black_skin_key, white_rating_before, black_rating_before, state_json, move_history_json, created_at, updated_at, rating_applied_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   database.exec("BEGIN");
@@ -263,9 +286,14 @@ function writeStoreInternal(state, database = ensureDatabase()) {
       insertRoom.run(
         room.code,
         room.variant,
+        room.visibility ?? "private",
         room.status,
         room.whiteUserId ?? null,
         room.blackUserId ?? null,
+        room.whiteSkinKey ?? null,
+        room.blackSkinKey ?? null,
+        room.whiteRatingBefore ?? null,
+        room.blackRatingBefore ?? null,
         JSON.stringify(room.state),
         JSON.stringify(room.moveHistory ?? []),
         room.createdAt,

@@ -1,0 +1,16 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- Frost Surface -->
+  <rect width="100" height="100" fill="#00354D" />
+  
+  <!-- Layered Ice -->
+  <rect x="10" y="10" width="80" height="80" fill="#0083B0" opacity="0.1" />
+  <rect x="25" y="25" width="50" height="50" fill="#B2EBF2" opacity="0.05" />
+
+  <!-- Surface Highlighting -->
+  <path d="M0 0 H100 L94 6 H6 L0 0 Z" fill="#0083B0" opacity="0.3" />
+  <path d="M0 100 H100 L94 94 H6 L0 100 Z" fill="#001824" opacity="0.3" />
+  
+  <!-- Ice Shards -->
+  <path d="M20 20 L30 30 M70 70 L80 80" stroke="white" stroke-width="2" opacity="0.1" />
+  <rect x="45" y="45" width="10" height="10" fill="white" opacity="0.05" />
+</svg>

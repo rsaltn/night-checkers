@@ -1,23 +1,17 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
-  <rect width="32" height="32" fill="none"/>
-  <rect x="10" y="2" width="12" height="2" fill="#fff7d8"/>
-  <rect x="6" y="4" width="20" height="2" fill="#ffd9a1"/>
-  <rect x="4" y="6" width="24" height="4" fill="#ffb15b"/>
-  <rect x="2" y="10" width="28" height="8" fill="#ff8a3d"/>
-  <rect x="4" y="18" width="24" height="4" fill="#d85d1d"/>
-  <rect x="6" y="22" width="20" height="2" fill="#8b2e10"/>
-  <rect x="8" y="24" width="16" height="2" fill="#4d1306"/>
-  <rect x="10" y="26" width="12" height="2" fill="#240703"/>
-  <rect x="8" y="8" width="2" height="10" fill="#4d1306"/>
-  <rect x="22" y="8" width="2" height="10" fill="#4d1306"/>
-  <rect x="12" y="12" width="8" height="2" fill="#fff7d8"/>
-  <rect x="10" y="14" width="4" height="2" fill="#ffe8b0"/>
-  <rect x="18" y="14" width="4" height="2" fill="#ffe8b0"/>
-  <rect x="14" y="18" width="4" height="2" fill="#3b0d05"/>
-  <rect x="8" y="28" width="16" height="2" fill="#140201"/>
-  <rect x="10" y="30" width="12" height="2" fill="#000000"/>
-  <rect x="8" y="4" width="2" height="2" fill="#000000"/>
-  <rect x="22" y="4" width="2" height="2" fill="#000000"/>
-  <rect x="4" y="8" width="2" height="12" fill="#000000"/>
-  <rect x="26" y="8" width="2" height="12" fill="#000000"/>
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <ellipse cx="50" cy="58" rx="42" ry="38" fill="#4B1200" opacity="0.8" />
+  
+  <!-- Lava Side Glow -->
+  <path d="M8 50 A42 38 0 0 0 92 50 L92 58 A42 38 0 0 1 8 58 Z" fill="#801000" />
+  <path d="M15 54 L85 54" stroke="#FF4500" stroke-width="2" opacity="0.3" />
+
+  <ellipse cx="50" cy="50" rx="42" ry="38" fill="#FF4500" stroke="#801000" stroke-width="2" />
+  <ellipse cx="50" cy="46" rx="38" ry="34" fill="#CC3300" />
+  
+  <!-- Glowing Center -->
+  <ellipse cx="50" cy="46" rx="28" ry="24" fill="#FF8C00" />
+  <ellipse cx="50" cy="46" rx="18" ry="14" fill="#FFD700" />
+  
+  <!-- Cracks -->
+  <path d="M30 46 H70 M50 22 V70" stroke="#801000" stroke-width="3" opacity="0.4" />
 </svg>

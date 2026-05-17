@@ -1,23 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
-  <rect width="32" height="32" fill="none"/>
-  <rect x="10" y="2" width="12" height="2" fill="#5e5b61"/>
-  <rect x="6" y="4" width="20" height="2" fill="#3d3a40"/>
-  <rect x="4" y="6" width="24" height="4" fill="#232129"/>
-  <rect x="2" y="10" width="28" height="8" fill="#151218"/>
-  <rect x="4" y="18" width="24" height="4" fill="#1f1714"/>
-  <rect x="6" y="22" width="20" height="2" fill="#52200d"/>
-  <rect x="8" y="24" width="16" height="2" fill="#8a340d"/>
-  <rect x="10" y="26" width="12" height="2" fill="#ff6b1a"/>
-  <rect x="8" y="8" width="2" height="10" fill="#09090b"/>
-  <rect x="22" y="8" width="2" height="10" fill="#09090b"/>
-  <rect x="12" y="12" width="8" height="2" fill="#ff8d24"/>
-  <rect x="10" y="14" width="4" height="2" fill="#ff8d24"/>
-  <rect x="18" y="14" width="4" height="2" fill="#ff8d24"/>
-  <rect x="14" y="18" width="4" height="2" fill="#d84b14"/>
-  <rect x="8" y="28" width="16" height="2" fill="#140201"/>
-  <rect x="10" y="30" width="12" height="2" fill="#000000"/>
-  <rect x="8" y="4" width="2" height="2" fill="#000000"/>
-  <rect x="22" y="4" width="2" height="2" fill="#000000"/>
-  <rect x="4" y="8" width="2" height="12" fill="#000000"/>
-  <rect x="26" y="8" width="2" height="12" fill="#000000"/>
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <ellipse cx="50" cy="58" rx="42" ry="38" fill="#000000" opacity="0.8" />
+  <path d="M8 50 A42 38 0 0 0 92 50 L92 58 A42 38 0 0 1 8 58 Z" fill="#1A0A05" />
+  
+  <!-- Magma Vein on Side -->
+  <path d="M20 54 L30 55 L40 54" fill="none" stroke="#FF4500" stroke-width="2" opacity="0.6" />
+
+  <ellipse cx="50" cy="50" rx="42" ry="38" fill="#1A0A05" stroke="#000" stroke-width="2" />
+  <ellipse cx="50" cy="46" rx="38" ry="34" fill="#2A0F08" />
+  
+  <!-- Glowing Cracks -->
+  <path d="M20 46 Q35 40 50 44 T80 42" fill="none" stroke="#FF4500" stroke-width="3" />
+  <ellipse cx="50" cy="46" rx="25" ry="20" fill="none" stroke="#FF8C00" stroke-width="1.5" opacity="0.3" />
 </svg>

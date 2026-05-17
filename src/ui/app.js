@@ -21,6 +21,7 @@ import {
   getProfile,
   getPublicMatch,
   joinOnlineRoom,
+  listPublicOnlineRooms,
   loginUser,
   logoutUser,
   requestPasswordReset,
@@ -31,7 +32,6 @@ import {
 
 const STORAGE_KEYS = {
   authToken: "night-checkers:auth-token",
-  renderMode: "night-checkers:render-mode",
   skin: "night-checkers:skin",
 };
 
@@ -48,9 +48,13 @@ const SKINS = {
         king: "/src/assets/pixel/piece-black-king.svg",
       },
     },
-    ornament: "/src/assets/pixel/skin-cathedral-ornament.png",
-    backdropLite: "/src/assets/pixel/skin-cathedral-backdrop.png",
-    backdrop3d: "/src/assets/pixel/skin-cathedral-row.png",
+    ornament: "/src/assets/pixel/panel-ornament.svg",
+    backdropLite: "/src/assets/pixel/stage-backdrop.svg",
+    backdrop3d: "/src/assets/pixel/stage-backdrop.svg",
+    tiles: {
+      light: "/src/assets/pixel/new/classic_tile_light.svg",
+      dark: "/src/assets/pixel/new/classic_tile_dark.svg",
+    },
     palette: {
       panelBorder: "rgba(180, 150, 97, 0.24)",
       ink: "#edf8e8",
@@ -77,9 +81,13 @@ const SKINS = {
         king: "/src/assets/pixel/piece-ember-black-king.svg",
       },
     },
-    ornament: "/src/assets/pixel/skin-ember-ornament.png",
-    backdropLite: "/src/assets/pixel/skin-ember-backdrop.png",
-    backdrop3d: "/src/assets/pixel/skin-ember-row.png",
+    ornament: "/src/assets/pixel/panel-ornament.svg",
+    backdropLite: "/src/assets/pixel/stage-backdrop.svg",
+    backdrop3d: "/src/assets/pixel/stage-backdrop.svg",
+    tiles: {
+      light: "/src/assets/pixel/new/lava_tile_light.svg",
+      dark: "/src/assets/pixel/new/lava_tile_dark.svg",
+    },
     palette: {
       panelBorder: "rgba(255, 136, 61, 0.26)",
       ink: "#fff0d8",
@@ -106,9 +114,13 @@ const SKINS = {
         king: "/src/assets/pixel/piece-crypt-black-king.svg",
       },
     },
-    ornament: "/src/assets/pixel/skin-crypt-ornament.png",
-    backdropLite: "/src/assets/pixel/skin-crypt-backdrop.png",
-    backdrop3d: "/src/assets/pixel/skin-crypt-row.png",
+    ornament: "/src/assets/pixel/panel-ornament.svg",
+    backdropLite: "/src/assets/pixel/stage-backdrop.svg",
+    backdrop3d: "/src/assets/pixel/stage-backdrop.svg",
+    tiles: {
+      light: "/src/assets/pixel/new/ice_tile_light.svg",
+      dark: "/src/assets/pixel/new/ice_tile_dark.svg",
+    },
     palette: {
       panelBorder: "rgba(84, 229, 255, 0.24)",
       ink: "#eaffff",
@@ -135,9 +147,13 @@ const SKINS = {
         king: "/src/assets/pixel/piece-arcade-black-king.svg",
       },
     },
-    ornament: "/src/assets/pixel/skin-arcade-ornament.png",
-    backdropLite: "/src/assets/pixel/skin-arcade-backdrop.png",
-    backdrop3d: "/src/assets/pixel/skin-arcade-row.png",
+    ornament: "/src/assets/pixel/panel-ornament.svg",
+    backdropLite: "/src/assets/pixel/stage-backdrop.svg",
+    backdrop3d: "/src/assets/pixel/stage-backdrop.svg",
+    tiles: {
+      light: "/src/assets/pixel/new/cyber_tile_light.svg",
+      dark: "/src/assets/pixel/new/cyber_tile_dark.svg",
+    },
     palette: {
       panelBorder: "rgba(255, 93, 211, 0.28)",
       ink: "#f2f3ff",
@@ -154,16 +170,30 @@ const SKINS = {
   },
 };
 
+function getSkinConfig(key) {
+  return SKINS[key] ?? SKINS.cathedral;
+}
+
+function normalizeSkinKey(value) {
+  return SKINS[value] ? value : "cathedral";
+}
+
+function skinKeyForBoardSide(color, skinContext) {
+  return normalizeSkinKey(skinContext?.[color] ?? "cathedral");
+}
+
 function getPieceAt(state, row, col) {
   return state.pieces.find((piece) => piece.row === row && piece.col === col) ?? null;
 }
 
-function renderPiece(piece, skin) {
+function renderPiece(piece, skinContext) {
+  const pieceSkin = getSkinConfig(skinKeyForBoardSide(piece.color, skinContext));
+
   return `
     <span class="piece piece--${piece.color} piece--${piece.kind}">
       <img
         class="piece__sprite"
-        src="${skin.pieceSprites[piece.color][piece.kind]}"
+        src="${pieceSkin.pieceSprites[piece.color][piece.kind]}"
         alt=""
         draggable="false"
       />
@@ -251,15 +281,24 @@ export function createApp(root) {
   let leaderboard = null;
   let profileBundle = null;
   let matchHistory = [];
+  let profileView = "history";
+  let historyVerdictFilter = "all";
+  let selectedHistoryCode = "";
   let publicMatch = null;
+  let publicMatchAnalysis = [];
+  let ephemeralMatch = null;
+  let pendingReplayPly = null;
   let replayPly = 0;
   let onlineRoom = null;
   let roomCodeDraft = initialRoomCode;
+  let roomVisibilityDraft = "private";
+  let publicRooms = [];
+  let publicRoomsTimer = null;
   let onlineError = "";
   let meta = {
     countries: [authCountryDraft],
   };
-  let renderMode = window.localStorage.getItem(STORAGE_KEYS.renderMode) ?? "pseudo3d";
+  const renderMode = "pseudo3d";
   let skinKey = window.localStorage.getItem(STORAGE_KEYS.skin) ?? "cathedral";
   let aiDifficulty = "medium";
   let aiColor = "black";
@@ -272,6 +311,8 @@ export function createApp(root) {
   let aiFallbackReason = null;
   let coachInsight = null;
   let moveHistory = [];
+  let postMatchSummary = null;
+  let dismissedPostMatchKey = "";
 
   function formatMove(move) {
     const route = formatMoveForVariant(state.variant, move);
@@ -285,11 +326,45 @@ export function createApp(root) {
     }
   }
 
+  function clearPublicRoomsTimer() {
+    if (publicRoomsTimer) {
+      clearInterval(publicRoomsTimer);
+      publicRoomsTimer = null;
+    }
+  }
+
   function disconnectRoomSocket() {
     if (roomSocket) {
       roomSocket.close();
       roomSocket = null;
     }
+  }
+
+  function loadPublicRooms() {
+    listPublicOnlineRooms()
+      .then((payload) => {
+        publicRooms = payload.rooms ?? [];
+        render();
+      })
+      .catch(() => {
+        publicRooms = [];
+        render();
+      });
+  }
+
+  function syncPublicRoomPolling() {
+    clearPublicRoomsTimer();
+
+    if (currentPage !== "online") {
+      return;
+    }
+
+    loadPublicRooms();
+    publicRoomsTimer = setInterval(() => {
+      if (currentPage === "online") {
+        loadPublicRooms();
+      }
+    }, 8000);
   }
 
   function loadAIStatus() {
@@ -351,10 +426,12 @@ export function createApp(root) {
     getMyMatches(authToken)
       .then((payload) => {
         matchHistory = payload.matches ?? [];
+        ensureSelectedHistoryCode();
         render();
       })
       .catch(() => {
         matchHistory = [];
+        selectedHistoryCode = "";
         render();
       });
   }
@@ -378,6 +455,233 @@ export function createApp(root) {
     return replayState;
   }
 
+  function analyzeMatchMoves(match) {
+    if (!match?.moveHistory?.length) {
+      return [];
+    }
+
+    const chronologicalMoves = [...match.moveHistory].reverse();
+    let analysisState = createGame(match.variant);
+
+    return chronologicalMoves.map((entry, index) => {
+      const move = entry?.move;
+      const insight = move
+        ? analyzePlayedMove(analysisState, move, {
+            difficulty: "medium",
+          })
+        : null;
+
+      if (move) {
+        analysisState = applyMove(analysisState, move);
+      }
+
+      return {
+        ...entry,
+        ply: index + 1,
+        insight,
+      };
+    });
+  }
+
+  function summarizeMatchAnalysis(entries) {
+    return entries.reduce(
+      (summary, entry) => {
+        const verdict = entry?.insight?.verdict;
+
+        if (verdict && summary[verdict] !== undefined) {
+          summary[verdict] += 1;
+        }
+
+        return summary;
+      },
+      {
+        good: 0,
+        inaccuracy: 0,
+        mistake: 0,
+        blunder: 0,
+      },
+    );
+  }
+
+  function matchByCode(code) {
+    return matchHistory.find((match) => match.code === code) ?? null;
+  }
+
+  function resultHeadline(result, winnerLabel = "") {
+    if (result === "win") {
+      return "Victory";
+    }
+
+    if (result === "loss") {
+      return "Defeat";
+    }
+
+    if (result === "draw") {
+      return "Draw";
+    }
+
+    return winnerLabel ? `${winnerLabel} wins` : "Match finished";
+  }
+
+  function onlineResultForCurrentUser(room) {
+    if (!room) {
+      return "draw";
+    }
+
+    if (!room.winner) {
+      return room.status === "finished" ? "draw" : "in_progress";
+    }
+
+    return room.currentColor === room.winner ? "win" : "loss";
+  }
+
+  function buildEphemeralMatch({
+    code,
+    variant,
+    whitePlayer,
+    blackPlayer,
+    winner,
+    finalState,
+    moveHistory: reviewMoves,
+    status = "finished",
+  }) {
+    return {
+      code,
+      variant,
+      status,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      winner,
+      state: finalState,
+      players: {
+        white: whitePlayer,
+        black: blackPlayer,
+      },
+      moveHistory: reviewMoves,
+      ratingDelta: null,
+    };
+  }
+
+  function openMatchReview(match, ply = null) {
+    ephemeralMatch = null;
+    pendingReplayPly = ply;
+    navigateToMatch(match.code);
+  }
+
+  function openTemporaryReview(match, ply = null) {
+    ephemeralMatch = match;
+    publicMatch = match;
+    publicMatchAnalysis = analyzeMatchMoves(match);
+    replayPly = ply ?? (match.moveHistory?.length ?? 0);
+    currentPage = "match";
+    window.history.pushState({}, "", `/match/${match.code}`);
+    render();
+  }
+
+  function hidePostMatchSummary() {
+    if (postMatchSummary?.key) {
+      dismissedPostMatchKey = postMatchSummary.key;
+    }
+
+    postMatchSummary = null;
+    render();
+  }
+
+  function restartFromPostMatch() {
+    if (postMatchSummary?.mode === "online" && authToken) {
+      onlineError = "";
+      createOnlineRoom(authToken, {
+        variant: state.variant,
+        skinKey,
+        visibility: roomVisibilityDraft,
+      })
+        .then((room) => {
+          dismissedPostMatchKey = "";
+          postMatchSummary = null;
+          gameMode = "online";
+          syncRoom(room);
+          connectRoomRealtime(room.code);
+          loadPublicRooms();
+        })
+        .catch((error) => {
+          onlineError = error.message;
+          render();
+        });
+      return;
+    }
+
+    onSelectVariant(state.variant);
+  }
+
+  function setPostMatchSummary(nextSummary) {
+    if (!nextSummary) {
+      postMatchSummary = null;
+      return;
+    }
+
+    if (dismissedPostMatchKey === nextSummary.key) {
+      postMatchSummary = nextSummary;
+      return;
+    }
+
+    postMatchSummary = nextSummary;
+  }
+
+  function ensureSelectedHistoryCode() {
+    if (!matchHistory.length) {
+      selectedHistoryCode = "";
+      return null;
+    }
+
+    if (!selectedHistoryCode || !matchByCode(selectedHistoryCode)) {
+      selectedHistoryCode = matchHistory[0].code;
+    }
+
+    return matchByCode(selectedHistoryCode);
+  }
+
+  function verdictLabel(verdict) {
+    const labels = {
+      all: "All verdicts",
+      good: "Good",
+      inaccuracy: "Inaccuracy",
+      mistake: "Mistake",
+      blunder: "Blunder",
+    };
+
+    return labels[verdict] ?? verdict;
+  }
+
+  function boardSkinContextForPlayers(players) {
+    return {
+      white: normalizeSkinKey(players?.white?.skinKey ?? skinKey),
+      black: normalizeSkinKey(players?.black?.skinKey ?? skinKey),
+    };
+  }
+
+  function boardSkinContextForCurrentView() {
+    if (gameMode === "online" && onlineRoom?.players) {
+      return boardSkinContextForPlayers(onlineRoom.players);
+    }
+
+    if (currentPage === "match" && publicMatch?.players) {
+      return boardSkinContextForPlayers(publicMatch.players);
+    }
+
+    return {
+      white: normalizeSkinKey(skinKey),
+      black: normalizeSkinKey(skinKey),
+    };
+  }
+
+  function tileAssetForSquare(row, col, boardSize, skinContext) {
+    const sideColor = row < boardSize / 2 ? "black" : "white";
+    const tileSkin = getSkinConfig(skinKeyForBoardSide(sideColor, skinContext));
+    const isDark = (row + col) % 2 === 1;
+
+    return isDark ? tileSkin.tiles.dark : tileSkin.tiles.light;
+  }
+
   function loadPublicMatch() {
     if (!initialMatchCode && currentPage !== "match") {
       return;
@@ -391,14 +695,27 @@ export function createApp(root) {
       return;
     }
 
+    if (ephemeralMatch && matchCode === ephemeralMatch.code) {
+      publicMatch = ephemeralMatch;
+      publicMatchAnalysis = analyzeMatchMoves(ephemeralMatch);
+      replayPly = pendingReplayPly ?? (ephemeralMatch.moveHistory?.length ?? 0);
+      pendingReplayPly = null;
+      render();
+      return;
+    }
+
     getPublicMatch(matchCode)
       .then((payload) => {
         publicMatch = payload;
-        replayPly = payload.moveHistory?.length ?? 0;
+        publicMatchAnalysis = analyzeMatchMoves(payload);
+        replayPly = pendingReplayPly ?? (payload.moveHistory?.length ?? 0);
+        pendingReplayPly = null;
         render();
       })
       .catch(() => {
         publicMatch = null;
+        publicMatchAnalysis = [];
+        pendingReplayPly = null;
         render();
       });
   }
@@ -413,6 +730,7 @@ export function createApp(root) {
       window.history.pushState({}, "", url);
     }
 
+    syncPublicRoomPolling();
     render();
   }
 
@@ -426,6 +744,7 @@ export function createApp(root) {
       window.history.pushState({}, "", url);
     }
 
+    syncPublicRoomPolling();
     loadPublicMatch();
   }
 
@@ -443,6 +762,7 @@ export function createApp(root) {
 
     loadLeaderboard();
     loadProfileData();
+    loadPublicRooms();
     render();
   }
 
@@ -452,6 +772,32 @@ export function createApp(root) {
     selectedPieceId = null;
     pendingMoves = [];
     state = room.state;
+
+    if (room.status === "finished") {
+      const selfColor = room.currentColor;
+      const selfPlayer = selfColor ? room.players?.[selfColor] : null;
+      const opponentColor = selfColor === "white" ? "black" : "white";
+      const opponentPlayer = selfColor ? room.players?.[opponentColor] : null;
+      const result = onlineResultForCurrentUser(room);
+
+      setPostMatchSummary({
+        key: `online:${room.code}:${room.updatedAt}`,
+        mode: "online",
+        result,
+        headline: resultHeadline(result),
+        opponentName: opponentPlayer?.displayName ?? "Opponent",
+        opponentSubtitle: opponentPlayer ? `${opponentPlayer.country} · ${variantDisplayName(getVariantConfig(room.variant))}` : variantDisplayName(getVariantConfig(room.variant)),
+        ratingDelta: selfColor ? room.ratingDelta?.[selfColor] ?? null : null,
+        reviewLabel: "Open game review",
+      onReview: () => openMatchReview({
+          code: room.code,
+        }, room.moveHistory?.length ?? 0),
+      });
+    } else if (postMatchSummary?.mode === "online" && postMatchSummary.key.startsWith(`online:${room.code}:`)) {
+      postMatchSummary = null;
+    }
+
+    loadPublicRooms();
     render();
   }
 
@@ -509,7 +855,9 @@ export function createApp(root) {
 
         if (initialRoomCode) {
           roomCodeDraft = initialRoomCode;
-          joinOnlineRoom(authToken, initialRoomCode)
+          joinOnlineRoom(authToken, initialRoomCode, {
+            skinKey,
+          })
             .then((room) => {
               gameMode = "online";
               syncRoom(room);
@@ -528,6 +876,7 @@ export function createApp(root) {
         matchHistory = [];
         render();
         loadLeaderboard();
+        loadPublicRooms();
       });
   }
 
@@ -566,9 +915,10 @@ export function createApp(root) {
         actor,
         player: previousState.currentPlayer,
         text: formatMove(move),
+        move,
       },
       ...moveHistory,
-    ].slice(0, 10);
+    ];
 
     if (actor === "human") {
       coachInsight = analyzePlayedMove(previousState, move, {
@@ -579,6 +929,59 @@ export function createApp(root) {
     selectedPieceId = null;
     pendingMoves = [];
     setState(nextState);
+
+    if (nextState.winner) {
+      const humanColor = aiColor === "white" ? "black" : "white";
+      const isAIMatch = gameMode === "ai";
+      const result = isAIMatch
+        ? nextState.winner === humanColor
+          ? "win"
+          : "loss"
+        : null;
+      const winnerLabel = playerDisplayName(nextState.winner);
+      const variantLabel = variantDisplayName(getVariantConfig(nextState.variant));
+      const opponentName = isAIMatch
+        ? `AI ${aiDifficulty}`
+        : nextState.winner === "white"
+          ? "Obsidian"
+          : "Ivory";
+      const reviewMatch = buildEphemeralMatch({
+        code: "LOCALREVIEW",
+        variant: nextState.variant,
+        whitePlayer: {
+          id: "local-white",
+          displayName: isAIMatch && humanColor === "black" ? `AI ${aiDifficulty}` : "Ivory",
+          country: "Local",
+          color: "white",
+          skinKey: boardSkinContextForCurrentView().white,
+          rating: null,
+        },
+        blackPlayer: {
+          id: "local-black",
+          displayName: isAIMatch && humanColor === "white" ? `AI ${aiDifficulty}` : "Obsidian",
+          country: "Local",
+          color: "black",
+          skinKey: boardSkinContextForCurrentView().black,
+          rating: null,
+        },
+        winner: nextState.winner,
+        finalState: nextState,
+        moveHistory,
+      });
+
+      setPostMatchSummary({
+        key: `${gameMode}:${nextState.variant}:${moveHistory.length}:${nextState.winner}`,
+        mode: gameMode,
+        result,
+        headline: isAIMatch ? resultHeadline(result) : resultHeadline("", winnerLabel),
+        opponentName,
+        opponentSubtitle: variantLabel,
+        ratingDelta: null,
+        reviewLabel: "Open game review",
+        onReview: () => openTemporaryReview(reviewMatch),
+      });
+      render();
+    }
   }
 
   function scheduleAIMove() {
@@ -646,6 +1049,9 @@ export function createApp(root) {
     clearAITimer();
     coachInsight = null;
     moveHistory = [];
+    postMatchSummary = null;
+    dismissedPostMatchKey = "";
+    ephemeralMatch = null;
     isAIThinking = false;
     aiFallbackReason = null;
     selectedPieceId = null;
@@ -658,14 +1064,20 @@ export function createApp(root) {
   function onModeChange(nextMode) {
     clearAITimer();
     disconnectRoomSocket();
+    if (nextMode !== "online") {
+      onlineRoom = null;
+    }
     gameMode = nextMode;
     coachInsight = null;
     moveHistory = [];
+    postMatchSummary = null;
+    dismissedPostMatchKey = "";
     isAIThinking = false;
     aiFallbackReason = null;
     selectedPieceId = null;
     pendingMoves = [];
     render();
+    syncPublicRoomPolling();
     scheduleAIMove();
   }
 
@@ -674,15 +1086,24 @@ export function createApp(root) {
     render();
   }
 
-  function onRenderModeChange(nextMode) {
-    renderMode = nextMode;
-    window.localStorage.setItem(STORAGE_KEYS.renderMode, renderMode);
-    render();
-  }
-
   function onSkinChange(nextSkin) {
-    skinKey = SKINS[nextSkin] ? nextSkin : "cathedral";
+    skinKey = normalizeSkinKey(nextSkin);
     window.localStorage.setItem(STORAGE_KEYS.skin, skinKey);
+
+    if (gameMode === "online" && authToken && onlineRoom?.code) {
+      joinOnlineRoom(authToken, onlineRoom.code, {
+        skinKey,
+      })
+        .then((room) => {
+          syncRoom(room);
+          connectRoomRealtime(room.code);
+        })
+        .catch(() => {
+          render();
+        });
+      return;
+    }
+
     render();
   }
 
@@ -698,6 +1119,9 @@ export function createApp(root) {
     gameMode = "local";
     state = restartGame(state.variant);
     moveHistory = [];
+    postMatchSummary = null;
+    dismissedPostMatchKey = "";
+    loadPublicRooms();
     render();
   }
 
@@ -804,7 +1228,7 @@ export function createApp(root) {
           <label class="field"><span>Email</span><input class="field__input" name="email" type="email" required /></label>
           <label class="field"><span>Country</span><select name="country">${countryOptions}</select></label>
           <label class="field"><span>Password</span><input class="field__input" name="password" type="password" required /></label>
-          <button type="submit" class="route-btn">Send code</button>
+          <button type="submit" class="route-btn">Create account</button>
         </form>
       `;
     } else if (authMode === "resetRequest") {
@@ -846,6 +1270,26 @@ export function createApp(root) {
         <div class="panel panel--online">
           <div class="panel__heading">Online Arena</div>
           <div class="routes__hint">Sign in first to create or join multiplayer rooms.</div>
+          <div class="panel panel--lobby">
+            <div class="panel__heading">Public rooms</div>
+            <div class="routes__list">
+              ${
+                publicRooms.length
+                  ? publicRooms
+                      .map(
+                        (room) => `
+                          <div class="move-log">
+                            <strong>${escapeHtml(variantDisplayName(getVariantConfig(room.variant)))}</strong><br />
+                            Host ${escapeHtml(room.host?.displayName ?? "Unknown")} · ${escapeHtml(room.host?.country ?? "Unknown")}<br />
+                            Code ${escapeHtml(room.code)}
+                          </div>
+                        `,
+                      )
+                      .join("")
+                  : `<div class="routes__hint">No public waiting rooms right now.</div>`
+              }
+            </div>
+          </div>
         </div>
       `;
     }
@@ -856,7 +1300,16 @@ export function createApp(root) {
           <div class="panel__heading">Online Arena</div>
           ${onlineError ? `<div class="coach coach--mistake">${escapeHtml(onlineError)}</div>` : ""}
           <div class="routes__list">
-            <button type="button" class="route-btn" id="online-create-room-btn">Create room</button>
+            <form id="online-create-room-form" class="auth-form">
+              <label class="field">
+                <span>Create room</span>
+                <select name="visibility">
+                  <option value="private" ${roomVisibilityDraft === "private" ? "selected" : ""}>Private</option>
+                  <option value="public" ${roomVisibilityDraft === "public" ? "selected" : ""}>Public</option>
+                </select>
+              </label>
+              <button type="submit" class="route-btn">Open room</button>
+            </form>
             <form id="online-join-form" class="auth-form">
               <label class="field">
                 <span>Invite code</span>
@@ -864,6 +1317,30 @@ export function createApp(root) {
               </label>
               <button type="submit" class="route-btn">Join room</button>
             </form>
+            <div class="panel panel--lobby">
+              <div class="panel__heading">Public rooms</div>
+              <div class="routes__list">
+                ${
+                  publicRooms.length
+                    ? publicRooms
+                        .map(
+                          (room) => `
+                            <button
+                              type="button"
+                              class="route-btn public-room-btn"
+                              data-public-room-code="${escapeHtml(room.code)}"
+                            >
+                              <strong>${escapeHtml(variantDisplayName(getVariantConfig(room.variant)))}</strong><br />
+                              Host ${escapeHtml(room.host?.displayName ?? "Unknown")} · ${escapeHtml(room.host?.country ?? "Unknown")}<br />
+                              Code ${escapeHtml(room.code)}
+                            </button>
+                          `,
+                        )
+                        .join("")
+                    : `<div class="routes__hint">No public waiting rooms right now.</div>`
+                }
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -877,6 +1354,7 @@ export function createApp(root) {
         ${onlineError ? `<div class="coach coach--mistake">${escapeHtml(onlineError)}</div>` : ""}
         <div class="routes__list">
           <div class="move-log"><strong>Room:</strong> ${onlineRoom.code}</div>
+          <div class="routes__hint">Visibility: ${escapeHtml(onlineRoom.visibility ?? "private")}</div>
           <div class="routes__hint">Invite link: ${escapeHtml(roomUrl)}</div>
           <div class="routes__hint">Status: ${escapeHtml(onlineRoom.status)}</div>
           <div class="routes__hint">Your side: ${escapeHtml(onlineRoom.currentColor ?? "spectator")}</div>
@@ -939,6 +1417,10 @@ export function createApp(root) {
     return `
       <div class="panel">
         <div class="panel__heading">Profile</div>
+        <div class="auth-switches auth-switches--wide">
+          <button type="button" class="route-btn profile-view-btn ${profileView === "history" ? "page-nav__btn--active" : ""}" data-profile-view="history">History</button>
+          <button type="button" class="route-btn profile-view-btn ${profileView === "skins" ? "page-nav__btn--active" : ""}" data-profile-view="skins">Skins</button>
+        </div>
         <div class="routes__list">
           <div class="move-log"><strong>${escapeHtml(currentUser.displayName)}</strong></div>
           <div class="routes__hint">${escapeHtml(currentUser.email)}</div>
@@ -947,32 +1429,240 @@ export function createApp(root) {
           <div class="routes__hint">English ${currentUser.ratings?.english ?? 1200}</div>
           <div class="routes__hint">International ${currentUser.ratings?.international ?? 1200}</div>
           <div class="routes__hint">Matches ${stats.total} · W ${stats.wins} · L ${stats.losses} · D ${stats.draws}</div>
+          <div class="routes__hint">Active skin ${escapeHtml(getSkinConfig(skinKey).label)}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderSkinLibraryPanel() {
+    return `
+      <div class="panel">
+        <div class="panel__eyebrow">Profile Cosmetics</div>
+        <h2 class="stage__title">Skin Bay</h2>
+        <div class="skin-grid">
+          ${Object.entries(SKINS)
+            .map(([key, entry]) => {
+              const selected = key === skinKey;
+              const previewContext = {
+                white: key,
+                black: key,
+              };
+
+              return `
+                <button
+                  type="button"
+                  class="skin-card route-btn ${selected ? "page-nav__btn--active" : ""}"
+                  data-skin-card="${key}"
+                >
+                  <div class="skin-card__header">
+                    <strong>${escapeHtml(entry.label)}</strong>
+                    <span>${selected ? "Active" : "Apply"}</span>
+                  </div>
+                  <div class="skin-card__preview">
+                    <div class="skin-card__tile" style="--skin-preview-tile: url('${entry.tiles.light}');">
+                      ${renderPiece({ color: "white", kind: "man" }, previewContext)}
+                    </div>
+                    <div class="skin-card__tile" style="--skin-preview-tile: url('${entry.tiles.dark}');">
+                      ${renderPiece({ color: "black", kind: "man" }, previewContext)}
+                    </div>
+                    <div class="skin-card__tile" style="--skin-preview-tile: url('${entry.tiles.light}');">
+                      ${renderPiece({ color: "white", kind: "king" }, previewContext)}
+                    </div>
+                    <div class="skin-card__tile" style="--skin-preview-tile: url('${entry.tiles.dark}');">
+                      ${renderPiece({ color: "black", kind: "king" }, previewContext)}
+                    </div>
+                  </div>
+                </button>
+              `;
+            })
+            .join("")}
         </div>
       </div>
     `;
   }
 
   function renderHistoryPanel() {
+    const selectedMatch = ensureSelectedHistoryCode();
+    const selectedAnalysis = selectedMatch ? analyzeMatchMoves(selectedMatch) : [];
+    const filteredEntries = selectedAnalysis.filter((entry) =>
+      historyVerdictFilter === "all" ? true : entry.insight?.verdict === historyVerdictFilter,
+    );
+    const summary = summarizeMatchAnalysis(selectedAnalysis);
+    const maxScoreLoss = Math.max(
+      1,
+      ...selectedAnalysis.map((entry) => Math.max(1, entry.insight?.scoreLoss ?? 0)),
+    );
+
     return `
       <div class="panel">
-        <div class="panel__heading">Match history</div>
-        <div class="routes__list">
-          ${
-            matchHistory.length
-              ? matchHistory
-                  .slice(0, 8)
-                  .map(
-                    (match) => `
-                      <div class="move-log">
-                        <strong>${escapeHtml(match.variant)}</strong> · ${escapeHtml(match.result)}<br />
-                        vs ${escapeHtml(match.opponent?.displayName ?? "Waiting")} · room ${escapeHtml(match.code)}<br />
-                        ${escapeHtml(match.updatedAt)}
+        <div class="panel__eyebrow">Profile History</div>
+        <h2 class="stage__title">Game Review</h2>
+        ${
+          matchHistory.length
+            ? `
+              <label class="field">
+                <span>Filter verdict</span>
+                <select id="history-verdict-filter">
+                  ${["all", "good", "inaccuracy", "mistake", "blunder"]
+                    .map(
+                      (verdict) =>
+                        `<option value="${verdict}" ${verdict === historyVerdictFilter ? "selected" : ""}>${verdictLabel(verdict)}</option>`,
+                    )
+                    .join("")}
+                </select>
+              </label>
+              <div class="history-layout">
+                <div class="routes__list">
+                  ${matchHistory
+                    .map((match) => {
+                      const isSelected = selectedMatch?.code === match.code;
+                      const matchAnalysis = analyzeMatchMoves(match);
+                      const matchSummary = summarizeMatchAnalysis(matchAnalysis);
+
+                      return `
+                        <button
+                          type="button"
+                          class="route-btn history-match-btn ${isSelected ? "page-nav__btn--active" : ""}"
+                          data-history-code="${escapeHtml(match.code)}"
+                        >
+                          <strong>${escapeHtml(match.variant)}</strong> · ${escapeHtml(match.result)}<br />
+                          vs ${escapeHtml(match.opponent?.displayName ?? "Waiting")} · ${escapeHtml(match.playerColor)}<br />
+                          G ${matchSummary.good} · I ${matchSummary.inaccuracy} · M ${matchSummary.mistake} · B ${matchSummary.blunder}
+                        </button>
+                      `;
+                    })
+                    .join("")}
+                </div>
+                ${
+                  selectedMatch
+                    ? `
+                      <div class="panel panel--review">
+                        <div class="panel__heading">${escapeHtml(selectedMatch.code)} · ${escapeHtml(selectedMatch.variant)}</div>
+                        <div class="routes__hint">vs ${escapeHtml(selectedMatch.opponent?.displayName ?? "Waiting")} · ${escapeHtml(selectedMatch.updatedAt)}</div>
+                        <div class="review-summary">
+                          <div class="review-stat review-stat--good"><strong>Good</strong><span>${summary.good}</span></div>
+                          <div class="review-stat review-stat--inaccuracy"><strong>Inacc</strong><span>${summary.inaccuracy}</span></div>
+                          <div class="review-stat review-stat--mistake"><strong>Mist</strong><span>${summary.mistake}</span></div>
+                          <div class="review-stat review-stat--blunder"><strong>Blunder</strong><span>${summary.blunder}</span></div>
+                        </div>
+                        <div class="review-chart">
+                          ${selectedAnalysis
+                            .map((entry) => {
+                              const verdict = entry.insight?.verdict ?? "good";
+                              const loss = Math.max(4, Math.round(((entry.insight?.scoreLoss ?? 0) / maxScoreLoss) * 100));
+
+                              return `
+                                <button
+                                  type="button"
+                                  class="review-bar review-bar--${verdict} ${entry.ply === replayPly ? "review-bar--active" : ""}"
+                                  data-history-ply="${entry.ply}"
+                                  title="${escapeHtml(`${entry.ply}. ${entry.text} · ${verdict}`)}"
+                                  style="height:${loss}%"
+                                ></button>
+                              `;
+                            })
+                            .join("")}
+                        </div>
+                        <div class="routes__list">
+                          ${
+                            filteredEntries.length
+                              ? filteredEntries
+                                  .map(
+                                    (entry) => `
+                                      <button
+                                        type="button"
+                                        class="route-btn replay-jump-btn replay-jump-btn--${entry.insight?.verdict ?? "good"}"
+                                        data-history-ply="${entry.ply}"
+                                      >
+                                        ${entry.ply}. ${escapeHtml(entry.text)} · ${escapeHtml(entry.insight?.verdict ?? "good")} · ${(entry.insight?.scoreLoss ?? 0).toFixed(1)}
+                                      </button>
+                                    `,
+                                  )
+                                  .join("")
+                              : `<div class="routes__hint">No moves match the selected verdict filter.</div>`
+                          }
+                        </div>
                       </div>
-                    `,
-                  )
-                  .join("")
-              : `<div class="routes__hint">No completed online matches yet.</div>`
-          }
+                    `
+                    : `<div class="routes__hint">Pick a match to open its review.</div>`
+                }
+              </div>
+            `
+            : `<div class="routes__hint">No completed online matches yet.</div>`
+        }
+      </div>
+    `;
+  }
+
+  function renderPostMatchOverlay() {
+    if (!postMatchSummary || dismissedPostMatchKey === postMatchSummary.key) {
+      return "";
+    }
+
+    const delta = postMatchSummary.ratingDelta;
+    const deltaText = delta ? `${delta.change >= 0 ? "+" : ""}${delta.change} ELO` : null;
+    const ratingText = delta ? `${delta.before} -> ${delta.after}` : null;
+
+    return `
+      <div class="match-end-screen">
+        <div class="panel panel--match-end">
+          <div class="panel__eyebrow">Match Ended</div>
+          <h2 class="stage__title">${escapeHtml(postMatchSummary.headline)}</h2>
+          <div class="routes__list">
+            <div class="move-log"><strong>${escapeHtml(postMatchSummary.opponentName)}</strong></div>
+            <div class="routes__hint">${escapeHtml(postMatchSummary.opponentSubtitle ?? "")}</div>
+            ${deltaText ? `<div class="routes__hint"><strong>${escapeHtml(deltaText)}</strong> · ${escapeHtml(ratingText)}</div>` : ""}
+            <div class="routes__hint">Review is available for this game.</div>
+          </div>
+          <div class="auth-switches auth-switches--wide">
+            <button type="button" class="route-btn" id="post-match-review-btn">${escapeHtml(postMatchSummary.reviewLabel ?? "Open review")}</button>
+            <button type="button" class="route-btn" id="post-match-restart-btn">Play again</button>
+            <button type="button" class="route-btn" id="post-match-close-btn">Close</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function renderProfileStage() {
+    if (profileView === "skins") {
+      return `
+        <section class="stage stage--landing">
+          ${renderSkinLibraryPanel()}
+        </section>
+      `;
+    }
+
+    return `
+      <section class="stage stage--landing">
+        ${renderHistoryPanel()}
+      </section>
+    `;
+  }
+
+  function renderProfileSidebar() {
+    if (profileView === "skins") {
+      const activeSkin = getSkinConfig(skinKey);
+
+      return `
+        <div class="panel">
+          <div class="panel__heading">Selected skin</div>
+          <div class="routes__list">
+            <div class="move-log"><strong>${escapeHtml(activeSkin.label)}</strong></div>
+            <div class="routes__hint">Your games, profile previews, and online side now share this skin.</div>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="panel">
+        <div class="panel__heading">Review guide</div>
+        <div class="routes__list">
+          <div class="routes__hint">Use the verdict filter to isolate mistakes and blunders.</div>
+          <div class="routes__hint">Click any bar in the chart to jump to that move on the public replay page.</div>
+          <div class="routes__hint">Open a full board replay from the selected match if you need move-by-move navigation.</div>
         </div>
       </div>
     `;
@@ -1028,7 +1718,7 @@ export function createApp(root) {
     `;
   }
 
-  function renderPublicMatchPage(skin) {
+  function renderPublicMatchPage() {
     const match = publicMatch;
 
     if (!match) {
@@ -1052,6 +1742,9 @@ export function createApp(root) {
     }
 
     const replayState = replayStateForMatch(match, replayPly);
+    const boardSkinContext = boardSkinContextForPlayers(match.players);
+    const analysisSummary = summarizeMatchAnalysis(publicMatchAnalysis);
+    const activeAnalysis = replayPly > 0 ? publicMatchAnalysis[replayPly - 1] ?? null : null;
     const variant = getVariantConfig(match.variant);
     const colLabels = getColumnLabels(variant.boardSize);
     const rowLabels = getRowLabels(variant.boardSize);
@@ -1064,8 +1757,8 @@ export function createApp(root) {
       const isDark = (row + col) % 2 === 1;
 
       return `
-        <div class="cell ${isDark ? "cell--dark" : "cell--light"}">
-          ${piece ? renderPiece(piece, skin) : ""}
+        <div class="cell ${isDark ? "cell--dark" : "cell--light"}" style="--cell-tile-image: url('${tileAssetForSquare(row, col, variant.boardSize, boardSkinContext)}');">
+          ${piece ? renderPiece(piece, boardSkinContext) : ""}
         </div>
       `;
     }).join("");
@@ -1083,6 +1776,7 @@ export function createApp(root) {
             <div class="routes__hint">${escapeHtml(match.players.white?.displayName ?? "White")} vs ${escapeHtml(match.players.black?.displayName ?? "Black")}</div>
             <div class="routes__hint">Winner: ${escapeHtml(match.winner ?? "none")}</div>
             <div class="routes__hint">Share: ${escapeHtml(shareUrl)}</div>
+            <div class="routes__hint">Good ${analysisSummary.good} · Inacc ${analysisSummary.inaccuracy} · Mist ${analysisSummary.mistake} · Blunder ${analysisSummary.blunder}</div>
           </div>
         </div>
       `,
@@ -1112,7 +1806,13 @@ export function createApp(root) {
             </div>
           </div>
           <div class="stage__footer">
-            <div class="stage-note">Ply ${replayPly} / ${totalPly}</div>
+            <div class="stage-note">
+              ${
+                activeAnalysis?.insight
+                  ? `${playerDisplayName(activeAnalysis.player)} ${escapeHtml(activeAnalysis.text)} · ${activeAnalysis.insight.verdict} · loss ${activeAnalysis.insight.scoreLoss.toFixed(1)}`
+                  : `Ply ${replayPly} / ${totalPly}`
+              }
+            </div>
             <div class="auth-switches auth-switches--wide">
               <button type="button" class="route-btn" id="replay-start-btn">Start</button>
               <button type="button" class="route-btn" id="replay-prev-btn">Prev</button>
@@ -1120,20 +1820,40 @@ export function createApp(root) {
               <button type="button" class="route-btn" id="replay-end-btn">End</button>
             </div>
           </div>
+          ${renderPostMatchOverlay()}
         </section>
       `,
       right: `
         <div class="panel">
           <div class="panel__heading">Move stack</div>
+          ${
+            activeAnalysis?.insight
+              ? `
+                <div class="coach coach--${activeAnalysis.insight.verdict}">
+                  <div><strong>Verdict:</strong> ${activeAnalysis.insight.verdict}</div>
+                  <div><strong>Move:</strong> ${escapeHtml(activeAnalysis.text)}</div>
+                  <div><strong>Engine choice:</strong> ${escapeHtml(activeAnalysis.insight.bestMoveText)}</div>
+                  <div><strong>Score loss:</strong> ${activeAnalysis.insight.scoreLoss.toFixed(1)}</div>
+                  <div class="coach__reasons">
+                    ${activeAnalysis.insight.reasons.map((reason) => `<div>${escapeHtml(reason)}</div>`).join("")}
+                  </div>
+                  ${
+                    activeAnalysis.insight.principalVariation.length > 0
+                      ? `<div><strong>Main line:</strong> ${activeAnalysis.insight.principalVariation.map((moveText) => escapeHtml(moveText)).join(" | ")}</div>`
+                      : ""
+                  }
+                </div>
+              `
+              : `<div class="routes__hint">Jump to any ply to inspect engine judgement for that move.</div>`
+          }
           <div class="routes__list">
             ${
               totalPly
-                ? [...match.moveHistory]
-                    .reverse()
+                ? publicMatchAnalysis
                     .map(
-                      (entry, index) => `
-                        <button type="button" class="route-btn replay-jump-btn ${index + 1 === replayPly ? "page-nav__btn--active" : ""}" data-replay-ply="${index + 1}">
-                          ${index + 1}. ${escapeHtml(entry.text)}
+                      (entry) => `
+                        <button type="button" class="route-btn replay-jump-btn replay-jump-btn--${entry.insight?.verdict ?? "good"} ${entry.ply === replayPly ? "page-nav__btn--active" : ""}" data-replay-ply="${entry.ply}">
+                          ${entry.ply}. ${escapeHtml(entry.text)}${entry.insight ? ` · ${entry.insight.verdict}` : ""}
                         </button>
                       `,
                     )
@@ -1148,7 +1868,8 @@ export function createApp(root) {
 
   function render(allMoves = getLegalMoves(state), selectedMoves = []) {
     const variant = getVariantConfig(state.variant);
-    const skin = SKINS[skinKey] ?? SKINS.cathedral;
+    const skin = getSkinConfig(skinKey);
+    const boardSkinContext = boardSkinContextForCurrentView();
     const title = variantDisplayName(variant);
     const isArenaPage = currentPage === "play" || currentPage === "online";
     const moveTargets = new Map(
@@ -1189,8 +1910,9 @@ export function createApp(root) {
           }"
           data-row="${row}"
           data-col="${col}"
+          style="--cell-tile-image: url('${tileAssetForSquare(row, col, variant.boardSize, boardSkinContext)}');"
         >
-          ${piece ? renderPiece(piece, skin) : ""}
+          ${piece ? renderPiece(piece, boardSkinContext) : ""}
         </button>
       `;
     }).join("");
@@ -1216,7 +1938,7 @@ export function createApp(root) {
       let rightMarkup = `${renderLeaderboardPanel()}`;
 
       if (currentPage === "match") {
-        const matchPage = renderPublicMatchPage(skin);
+        const matchPage = renderPublicMatchPage();
         leftMarkup = matchPage.left;
         centerMarkup = matchPage.center;
         rightMarkup = matchPage.right;
@@ -1228,7 +1950,7 @@ export function createApp(root) {
             <div class="panel page-hero">
               <div class="panel__eyebrow">Access Gate</div>
               <h2 class="stage__title">Account access</h2>
-              <p class="panel__copy">Email registration with confirmation code, password reset, and country-tagged rating profile.</p>
+              <p class="panel__copy">Email registration, password reset, country-tagged rating, and persistent online match history.</p>
             </div>
           </section>
         `;
@@ -1287,53 +2009,8 @@ export function createApp(root) {
         `;
       } else if (currentPage === "profile") {
         leftMarkup = renderProfilePanel();
-        centerMarkup = `
-          <section class="stage stage--landing">
-            <div class="panel">
-              <div class="panel__eyebrow">Pilot Archive</div>
-              <h2 class="stage__title">Recent matches</h2>
-              <div class="routes__list">
-                ${
-                  matchHistory.length
-                    ? matchHistory
-                        .map(
-                          (match) => `
-                            <button type="button" class="route-btn match-link-btn" data-match-code="${escapeHtml(match.code)}">
-                              <strong>${escapeHtml(match.variant)}</strong> · ${escapeHtml(match.result)}<br />
-                              vs ${escapeHtml(match.opponent?.displayName ?? "Waiting")} · ${escapeHtml(match.playerColor)}<br />
-                              ${escapeHtml(match.updatedAt)}
-                            </button>
-                          `,
-                        )
-                        .join("")
-                    : `<div class="routes__hint">No online matches recorded yet.</div>`
-                }
-              </div>
-            </div>
-          </section>
-        `;
-        rightMarkup = `
-          <div class="panel">
-            <div class="panel__heading">Latest ladder snapshot</div>
-            <div class="routes__list">
-              ${
-                leaderboard?.topPlayers?.length
-                  ? leaderboard.topPlayers
-                      .slice(0, 5)
-                      .map(
-                        (entry, index) => `
-                          <div class="move-log">
-                            <strong>#${index + 1} ${escapeHtml(entry.displayName)}</strong><br />
-                            ${escapeHtml(entry.country)} · ${entry.rating}
-                          </div>
-                        `,
-                      )
-                      .join("")
-                  : `<div class="routes__hint">Sign in and play to see movement here.</div>`
-              }
-            </div>
-          </div>
-        `;
+        centerMarkup = renderProfileStage();
+        rightMarkup = renderProfileSidebar();
       }
 
       root.innerHTML = `
@@ -1413,24 +2090,6 @@ export function createApp(root) {
                   <option value="easy" ${aiDifficulty === "easy" ? "selected" : ""}>Scout</option>
                   <option value="medium" ${aiDifficulty === "medium" ? "selected" : ""}>Arena</option>
                   <option value="hard" ${aiDifficulty === "hard" ? "selected" : ""}>Boss</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Render</span>
-                <select id="render-mode-select">
-                  <option value="pseudo3d" ${renderMode === "pseudo3d" ? "selected" : ""}>Pseudo-3D</option>
-                  <option value="flat2d" ${renderMode === "flat2d" ? "selected" : ""}>2D Lite</option>
-                </select>
-              </label>
-              <label class="field">
-                <span>Skin</span>
-                <select id="skin-select">
-                  ${Object.entries(SKINS)
-                    .map(
-                      ([key, entry]) =>
-                        `<option value="${key}" ${key === skinKey ? "selected" : ""}>${entry.label}</option>`,
-                    )
-                    .join("")}
                 </select>
               </label>
               <button id="restart-btn" type="button">Reboot match</button>
@@ -1604,6 +2263,7 @@ export function createApp(root) {
                 ? `
                   <div class="routes__list">
                     ${moveHistory
+                      .slice(0, 10)
                       .map(
                         (entry) => `
                           <div class="move-log">
@@ -1680,16 +2340,63 @@ export function createApp(root) {
       onDifficultyChange(event.target.value);
     });
 
-    root.querySelector("#render-mode-select")?.addEventListener("change", (event) => {
-      onRenderModeChange(event.target.value);
-    });
-
-    root.querySelector("#skin-select")?.addEventListener("change", (event) => {
-      onSkinChange(event.target.value);
-    });
-
     root.querySelector("#restart-btn")?.addEventListener("click", () => {
       onSelectVariant(state.variant);
+    });
+
+    root.querySelector("#post-match-review-btn")?.addEventListener("click", () => {
+      const action = postMatchSummary?.onReview;
+
+      if (action) {
+        dismissedPostMatchKey = postMatchSummary.key;
+        action();
+      }
+    });
+
+    root.querySelector("#post-match-restart-btn")?.addEventListener("click", () => {
+      restartFromPostMatch();
+    });
+
+    root.querySelector("#post-match-close-btn")?.addEventListener("click", () => {
+      hidePostMatchSummary();
+    });
+
+    root.querySelectorAll(".profile-view-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        profileView = button.dataset.profileView ?? "history";
+        render();
+      });
+    });
+
+    root.querySelector("#history-verdict-filter")?.addEventListener("change", (event) => {
+      historyVerdictFilter = event.target.value;
+      render();
+    });
+
+    root.querySelectorAll(".history-match-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        selectedHistoryCode = button.dataset.historyCode ?? "";
+        render();
+      });
+    });
+
+    root.querySelectorAll("[data-history-ply]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const match = matchByCode(selectedHistoryCode);
+
+        if (!match) {
+          return;
+        }
+
+        pendingReplayPly = Number(button.dataset.historyPly ?? 0);
+        navigateToMatch(match.code);
+      });
+    });
+
+    root.querySelectorAll("[data-skin-card]").forEach((button) => {
+      button.addEventListener("click", () => {
+        onSkinChange(button.dataset.skinCard);
+      });
     });
 
     root.querySelectorAll(".auth-switch-btn").forEach((button) => {
@@ -1798,15 +2505,21 @@ export function createApp(root) {
       });
     });
 
-    root.querySelector("#online-create-room-btn")?.addEventListener("click", () => {
+    root.querySelector("#online-create-room-form")?.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.currentTarget);
+      roomVisibilityDraft = String(formData.get("visibility") ?? roomVisibilityDraft);
       onlineError = "";
       createOnlineRoom(authToken, {
         variant: state.variant,
+        skinKey,
+        visibility: roomVisibilityDraft,
       })
         .then((room) => {
           gameMode = "online";
           syncRoom(room);
           connectRoomRealtime(room.code);
+          loadPublicRooms();
         })
         .catch((error) => {
           onlineError = error.message;
@@ -1819,7 +2532,9 @@ export function createApp(root) {
       const formData = new FormData(event.currentTarget);
       roomCodeDraft = normalizeRoomCode(formData.get("roomCode"));
       onlineError = "";
-      joinOnlineRoom(authToken, roomCodeDraft)
+      joinOnlineRoom(authToken, roomCodeDraft, {
+        skinKey,
+      })
         .then((room) => {
           gameMode = "online";
           syncRoom(room);
@@ -1833,6 +2548,25 @@ export function createApp(root) {
 
     root.querySelector("#online-leave-room-btn")?.addEventListener("click", () => {
       leaveOnlineRoom();
+    });
+
+    root.querySelectorAll(".public-room-btn").forEach((button) => {
+      button.addEventListener("click", () => {
+        roomCodeDraft = normalizeRoomCode(button.dataset.publicRoomCode);
+        onlineError = "";
+        joinOnlineRoom(authToken, roomCodeDraft, {
+          skinKey,
+        })
+          .then((room) => {
+            gameMode = "online";
+            syncRoom(room);
+            connectRoomRealtime(room.code);
+          })
+          .catch((error) => {
+            onlineError = error.message;
+            render();
+          });
+      });
     });
 
     root.querySelector("#leaderboard-country-select")?.addEventListener("change", (event) => {
@@ -1881,6 +2615,7 @@ export function createApp(root) {
 
   loadAIStatus();
   loadMeta();
+  syncPublicRoomPolling();
   loadCurrentUser();
   loadPublicMatch();
   window.addEventListener("popstate", () => {
@@ -1894,6 +2629,7 @@ export function createApp(root) {
       gameMode = "local";
     }
 
+    syncPublicRoomPolling();
     render();
   });
   render();

@@ -21,6 +21,7 @@ import {
   getRoom,
   getUserMatchHistory,
   joinRoom,
+  listPublicRooms,
   submitRoomMove,
 } from "./multiplayer-service.js";
 import { attachRealtimeServer, broadcastRoomRefresh } from "./realtime.js";
@@ -225,6 +226,13 @@ const server = http.createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && url.pathname === "/api/multiplayer/rooms/public") {
+      sendJson(response, 200, {
+        rooms: await listPublicRooms(),
+      });
+      return;
+    }
+
     const roomMatch = url.pathname.match(/^\/api\/multiplayer\/rooms\/([A-Z0-9]+)$/);
 
     if (roomMatch) {
@@ -241,7 +249,7 @@ const server = http.createServer(async (request, response) => {
         const action = body?.action ?? "move";
 
         if (action === "join") {
-          const room = await joinRoom(user, roomCode);
+          const room = await joinRoom(user, roomCode, body.skinKey);
           broadcastRoomRefresh(room.code);
           sendJson(response, 200, room);
           return;

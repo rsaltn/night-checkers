@@ -1,0 +1,18 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <!-- Base Stone -->
+  <rect width="100" height="100" fill="#4B634B" />
+  
+  <!-- Outer Bevel -->
+  <path d="M0 0 H100 L94 6 H6 L0 0 Z" fill="#5B735B" opacity="0.6" />
+  <path d="M0 100 H100 L94 94 H6 L0 100 Z" fill="#3B533B" opacity="0.4" />
+  <path d="M0 0 V100 L6 94 V6 L0 0 Z" fill="#5B735B" opacity="0.5" />
+  <path d="M100 0 V100 L94 94 V6 L100 0 Z" fill="#3B533B" opacity="0.3" />
+
+  <!-- Highlights/Texture -->
+  <rect x="40" y="15" width="20" height="10" fill="#5B735B" opacity="0.3" />
+  <rect x="15" y="60" width="15" height="15" fill="#5B735B" opacity="0.2" />
+  <circle cx="80" cy="80" r="4" fill="#3B533B" opacity="0.2" />
+
+  <!-- Inner border -->
+  <rect x="6" y="6" width="88" height="88" fill="none" stroke="#5B735B" stroke-width="1" opacity="0.3" />
+</svg>
