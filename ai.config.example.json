@@ -1,0 +1,27 @@
+{
+  "providers": {
+    "english": {
+      "type": "command",
+      "label": "Kingsrow English wrapper",
+      "command": [
+        "node",
+        "./scripts/engine-wrapper-example.js",
+        "--engine",
+        "kingsrow-english"
+      ],
+      "timeoutMs": 5000
+    },
+    "international": {
+      "type": "command",
+      "label": "Scan wrapper",
+      "command": [
+        "node",
+        "./scripts/engine-wrapper-example.js",
+        "--engine",
+        "scan"
+      ],
+      "timeoutMs": 5000
+    },
+    "russian": null
+  }
+}

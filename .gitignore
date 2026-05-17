@@ -1,0 +1,10 @@
+.codex
+node_modules
+.DS_Store
+*.log
+
+# local overrides
+ai.config.local.json
+
+# optional archives
+vendor/downloads

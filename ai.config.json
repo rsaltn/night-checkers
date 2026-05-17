@@ -1,0 +1,13 @@
+{
+  "providers": {
+    "english": null,
+    "international": {
+      "type": "scan_hub",
+      "label": "Scan 3.1 Linux",
+      "binary": "./vendor/scan/scan_31/scan_linux",
+      "cwd": "./vendor/scan/scan_31",
+      "timeoutMs": 8000
+    },
+    "russian": null
+  }
+}

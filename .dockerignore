@@ -1,0 +1,5 @@
+.codex
+.git
+node_modules
+*.log
+vendor/downloads
