@@ -72,6 +72,14 @@ async function serveStatic(request, response) {
 
 const server = http.createServer(async (request, response) => {
   try {
+    if (request.method === "GET" && request.url === "/healthz") {
+      sendJson(response, 200, {
+        ok: true,
+        service: "night-checkers",
+      });
+      return;
+    }
+
     if (request.method === "GET" && request.url === "/api/ai/status") {
       sendJson(response, 200, await getAIStatus());
       return;
