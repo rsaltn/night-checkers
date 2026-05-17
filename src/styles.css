@@ -59,7 +59,8 @@ body::before {
 }
 
 button,
-select {
+select,
+input {
   font: inherit;
 }
 
@@ -100,6 +101,26 @@ select {
   box-shadow: var(--glow);
 }
 
+.shell__nav {
+  grid-column: 1 / -1;
+}
+
+.page-nav {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.page-nav__btn {
+  min-height: 44px;
+  padding: 0 16px;
+}
+
+.page-nav__btn--active {
+  color: #1f1103;
+  background: linear-gradient(180deg, #ffcf74, #ffb14e 64%, #c96b27);
+}
+
 .marquee__inner {
   display: flex;
   gap: 44px;
@@ -115,6 +136,19 @@ select {
 .hud,
 .stage {
   min-width: 0;
+}
+
+.stage--landing {
+  align-content: start;
+}
+
+.page-hero {
+  max-width: 860px;
+}
+
+.auth-switches--wide {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 12px;
 }
 
 .hud {
@@ -240,6 +274,7 @@ select {
 }
 
 .field select,
+.field__input,
 #restart-btn,
 .route-btn {
   min-height: 52px;
@@ -253,11 +288,27 @@ select {
 }
 
 .field select:focus,
+.field__input:focus,
 #restart-btn:focus,
 .route-btn:focus,
 .cell:focus {
   outline: 2px solid var(--warning);
   outline-offset: 2px;
+}
+
+.field__input {
+  width: 100%;
+}
+
+.auth-form,
+.auth-switches {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-switches {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 10px;
 }
 
 #restart-btn {
