@@ -35,6 +35,14 @@ const STORAGE_KEYS = {
   skin: "night-checkers:skin",
 };
 
+const MOTION = {
+  moveMs: 320,
+  captureMs: 280,
+  pulseMs: 420,
+};
+
+const BOARD_LABELS_CACHE = new Map();
+
 const SKINS = {
   cathedral: {
     label: "Cathedral",
@@ -188,9 +196,10 @@ function getPieceAt(state, row, col) {
 
 function renderPiece(piece, skinContext) {
   const pieceSkin = getSkinConfig(skinKeyForBoardSide(piece.color, skinContext));
+  const dataAttrs = piece.id ? ` data-piece-id="${escapeHtml(piece.id)}"` : "";
 
   return `
-    <span class="piece piece--${piece.color} piece--${piece.kind}">
+    <span class="piece piece--${piece.color} piece--${piece.kind}"${dataAttrs}>
       <img
         class="piece__sprite"
         src="${pieceSkin.pieceSprites[piece.color][piece.kind]}"
@@ -220,11 +229,53 @@ function playerDisplayName(color) {
 }
 
 function getColumnLabels(size) {
-  return Array.from({ length: size }, (_, index) => String.fromCharCode(65 + index));
+  const cacheKey = `cols:${size}`;
+
+  if (!BOARD_LABELS_CACHE.has(cacheKey)) {
+    BOARD_LABELS_CACHE.set(
+      cacheKey,
+      Array.from({ length: size }, (_, index) => String.fromCharCode(65 + index)),
+    );
+  }
+
+  return BOARD_LABELS_CACHE.get(cacheKey);
 }
 
 function getRowLabels(size) {
-  return Array.from({ length: size }, (_, index) => String(size - index));
+  const cacheKey = `rows:${size}`;
+
+  if (!BOARD_LABELS_CACHE.has(cacheKey)) {
+    BOARD_LABELS_CACHE.set(
+      cacheKey,
+      Array.from({ length: size }, (_, index) => String(size - index)),
+    );
+  }
+
+  return BOARD_LABELS_CACHE.get(cacheKey);
+}
+
+function createBoardIndex(state) {
+  const bySquare = new Map();
+  let whitePieces = 0;
+  let blackPieces = 0;
+
+  for (const piece of state.pieces) {
+    bySquare.set(`${piece.row}:${piece.col}`, piece);
+
+    if (piece.color === "white") {
+      whitePieces += 1;
+    } else {
+      blackPieces += 1;
+    }
+  }
+
+  return {
+    get(row, col) {
+      return bySquare.get(`${row}:${col}`) ?? null;
+    },
+    whitePieces,
+    blackPieces,
+  };
 }
 
 function normalizeRoomCode(value) {
@@ -286,6 +337,8 @@ export function createApp(root) {
   let selectedHistoryCode = "";
   let publicMatch = null;
   let publicMatchAnalysis = [];
+  const matchAnalysisCache = new Map();
+  const pendingMatchAnalysis = new Set();
   let ephemeralMatch = null;
   let pendingReplayPly = null;
   let replayPly = 0;
@@ -305,6 +358,7 @@ export function createApp(root) {
   let aiTimer = null;
   let roomSocket = null;
   let aiRequestId = 0;
+  let coachRequestId = 0;
   let isAIThinking = false;
   let aiStatus = null;
   let aiLastProvider = "internal";
@@ -314,10 +368,180 @@ export function createApp(root) {
   let postMatchSummary = null;
   let postMatchTab = "summary";
   let dismissedPostMatchKey = "";
+  let pendingBoardAnimation = null;
+  let captureSequence = null;
 
   function formatMove(move) {
     const route = formatMoveForVariant(state.variant, move);
     return move.isCapture ? `${route} | x${move.captures.length}` : route;
+  }
+
+  function escapeSelector(value) {
+    const stringValue = String(value ?? "");
+    return window.CSS?.escape ? window.CSS.escape(stringValue) : stringValue.replace(/"/g, '\\"');
+  }
+
+  function spriteSrcForPiece(piece, skinContext) {
+    const pieceSkin = getSkinConfig(skinKeyForBoardSide(piece.color, skinContext));
+    return pieceSkin.pieceSprites[piece.color][piece.kind];
+  }
+
+  function captureBoardSnapshot(stateSnapshot, skinContext) {
+    const boardElement = root.querySelector(".board");
+
+    if (!boardElement || !stateSnapshot?.pieces?.length) {
+      return null;
+    }
+
+    const pieces = new Map();
+
+    for (const piece of stateSnapshot.pieces) {
+      const element = root.querySelector(`[data-piece-id="${escapeSelector(piece.id)}"]`);
+
+      if (!element) {
+        continue;
+      }
+
+      pieces.set(piece.id, {
+        ...piece,
+        rect: element.getBoundingClientRect(),
+        spriteSrc: spriteSrcForPiece(piece, skinContext),
+      });
+    }
+
+    return {
+      boardRect: boardElement.getBoundingClientRect(),
+      pieces,
+    };
+  }
+
+  function queueBoardAnimation({ beforeState, afterState, move, beforeSkinContext, afterSkinContext }) {
+    if (!move) {
+      return;
+    }
+
+    const snapshot = captureBoardSnapshot(beforeState, beforeSkinContext);
+
+    if (!snapshot) {
+      return;
+    }
+
+    pendingBoardAnimation = {
+      snapshot,
+      move,
+      afterState,
+      afterSkinContext,
+    };
+  }
+
+  function spawnCapturedGhost(pieceSnapshot) {
+    if (!pieceSnapshot?.rect) {
+      return;
+    }
+
+    const ghost = document.createElement("div");
+    ghost.className = `piece piece-ghost piece-ghost--captured piece--${pieceSnapshot.color} piece--${pieceSnapshot.kind}`;
+    ghost.style.left = `${pieceSnapshot.rect.left}px`;
+    ghost.style.top = `${pieceSnapshot.rect.top}px`;
+    ghost.style.width = `${pieceSnapshot.rect.width}px`;
+    ghost.style.height = `${pieceSnapshot.rect.height}px`;
+    ghost.innerHTML = `<img class="piece__sprite" src="${pieceSnapshot.spriteSrc}" alt="" draggable="false" />`;
+    document.body.appendChild(ghost);
+
+    ghost.animate(
+      [
+        { transform: "translate3d(0, 0, 0) scale(1)", opacity: 1, filter: "brightness(1)" },
+        { transform: "translate3d(0, -10px, 0) scale(1.08)", opacity: 0.9, filter: "brightness(1.45)" },
+        { transform: "translate3d(0, 12px, 0) scale(0.18)", opacity: 0, filter: "brightness(0.7)" },
+      ],
+      {
+        duration: MOTION.captureMs,
+        easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+        fill: "forwards",
+      },
+    ).finished.finally(() => ghost.remove());
+  }
+
+  function playPendingBoardAnimation() {
+    const animation = pendingBoardAnimation;
+
+    if (!animation) {
+      return;
+    }
+
+    pendingBoardAnimation = null;
+
+    requestAnimationFrame(() => {
+      const movedPiece = root.querySelector(`[data-piece-id="${escapeSelector(animation.move.pieceId)}"]`);
+      const previousPiece = animation.snapshot.pieces.get(animation.move.pieceId);
+
+      if (movedPiece && previousPiece?.rect) {
+        const nextRect = movedPiece.getBoundingClientRect();
+        const dx = previousPiece.rect.left - nextRect.left;
+        const dy = previousPiece.rect.top - nextRect.top;
+
+        movedPiece.animate(
+          [
+            { transform: `translate3d(${dx}px, ${dy}px, 0) scale(1.04)`, opacity: 0.96 },
+            { transform: "translate3d(0, 0, 0) scale(1)", opacity: 1 },
+          ],
+          {
+            duration: MOTION.moveMs,
+            easing: "cubic-bezier(0.2, 0.8, 0.2, 1)",
+          },
+        );
+      }
+
+      for (const capturedId of animation.move.captures ?? []) {
+        spawnCapturedGhost(animation.snapshot.pieces.get(capturedId));
+      }
+
+      if (movedPiece && (animation.move.promotes || animation.move.pieceKindBefore !== animation.move.pieceKindAfter)) {
+        movedPiece.animate(
+          [
+            { transform: "scale(0.84)", filter: "brightness(1.15)" },
+            { transform: "scale(1.14)", filter: "brightness(1.65)" },
+            { transform: "scale(1)", filter: "brightness(1)" },
+          ],
+          {
+            duration: MOTION.pulseMs,
+            easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+          },
+        );
+      }
+
+      const targetCell = root.querySelector(`[data-row="${animation.move.to.row}"][data-col="${animation.move.to.col}"]`);
+
+      if (targetCell) {
+        targetCell.animate(
+          [
+            { boxShadow: "inset 0 0 0 0 rgba(255,255,255,0)" },
+            { boxShadow: "inset 0 0 0 3px rgba(255, 236, 170, 0.95), 0 0 24px rgba(255, 236, 170, 0.22)" },
+            { boxShadow: "inset 0 0 0 0 rgba(255,255,255,0)" },
+          ],
+          {
+            duration: MOTION.pulseMs,
+            easing: "ease-out",
+          },
+        );
+      }
+
+      if (animation.afterState?.winner) {
+        const board = root.querySelector(".board");
+
+        board?.animate(
+          [
+            { filter: "brightness(1)", transform: "translateZ(12px) scale(1)" },
+            { filter: "brightness(1.12)", transform: "translateZ(12px) scale(1.01)" },
+            { filter: "brightness(1)", transform: "translateZ(12px) scale(1)" },
+          ],
+          {
+            duration: MOTION.pulseMs + 120,
+            easing: "ease-out",
+          },
+        );
+      }
+    });
   }
 
   function clearAITimer() {
@@ -344,12 +568,24 @@ export function createApp(root) {
   function loadPublicRooms() {
     listPublicOnlineRooms()
       .then((payload) => {
-        publicRooms = payload.rooms ?? [];
-        render();
+        const nextRooms = payload.rooms ?? [];
+        const nextSignature = JSON.stringify(
+          nextRooms.map((room) => [room.code, room.status, room.visibility, room.variant, room.players?.white?.id ?? "", room.players?.black?.id ?? ""]),
+        );
+        const prevSignature = JSON.stringify(
+          publicRooms.map((room) => [room.code, room.status, room.visibility, room.variant, room.players?.white?.id ?? "", room.players?.black?.id ?? ""]),
+        );
+
+        if (nextSignature !== prevSignature) {
+          publicRooms = nextRooms;
+          render();
+        }
       })
       .catch(() => {
-        publicRooms = [];
-        render();
+        if (publicRooms.length > 0) {
+          publicRooms = [];
+          render();
+        }
       });
   }
 
@@ -397,12 +633,21 @@ export function createApp(root) {
   function loadLeaderboard() {
     getLeaderboard(state.variant, leaderboardCountry || undefined)
       .then((payload) => {
-        leaderboard = payload;
-        render();
+        const prevSignature = leaderboard
+          ? JSON.stringify([leaderboard.variant, leaderboard.country ?? "", leaderboard.topPlayers?.slice(0, 8), leaderboard.countries?.slice(0, 8)])
+          : "";
+        const nextSignature = JSON.stringify([payload.variant, payload.country ?? "", payload.topPlayers?.slice(0, 8), payload.countries?.slice(0, 8)]);
+
+        if (prevSignature !== nextSignature) {
+          leaderboard = payload;
+          render();
+        }
       })
       .catch(() => {
-        leaderboard = null;
-        render();
+        if (leaderboard !== null) {
+          leaderboard = null;
+          render();
+        }
       });
   }
 
@@ -482,6 +727,53 @@ export function createApp(root) {
         insight,
       };
     });
+  }
+
+  function analysisCacheKey(match) {
+    if (!match) {
+      return "";
+    }
+
+    return [
+      match.code ?? "match",
+      match.updatedAt ?? "",
+      match.moveHistory?.length ?? 0,
+      match.winner ?? "",
+    ].join(":");
+  }
+
+  function getCachedMatchAnalysis(match) {
+    const key = analysisCacheKey(match);
+    return key ? matchAnalysisCache.get(key) ?? null : null;
+  }
+
+  function warmMatchAnalysis(match, onReady = null) {
+    const key = analysisCacheKey(match);
+
+    if (!key) {
+      return null;
+    }
+
+    const cached = matchAnalysisCache.get(key);
+
+    if (cached) {
+      onReady?.(cached);
+      return cached;
+    }
+
+    if (pendingMatchAnalysis.has(key)) {
+      return null;
+    }
+
+    pendingMatchAnalysis.add(key);
+    window.setTimeout(() => {
+      const analysis = analyzeMatchMoves(match);
+      matchAnalysisCache.set(key, analysis);
+      pendingMatchAnalysis.delete(key);
+      onReady?.(analysis);
+    }, 0);
+
+    return null;
   }
 
   function summarizeMatchAnalysis(entries) {
@@ -629,9 +921,18 @@ export function createApp(root) {
   }
 
   function openTemporaryReview(match, ply = null) {
+    clearCaptureSequence();
+    selectedPieceId = null;
+    pendingMoves = [];
     ephemeralMatch = match;
     publicMatch = match;
-    publicMatchAnalysis = analyzeMatchMoves(match);
+    publicMatchAnalysis = getCachedMatchAnalysis(match) ?? [];
+    warmMatchAnalysis(match, (analysis) => {
+      if (publicMatch?.code === match.code) {
+        publicMatchAnalysis = analysis;
+        render();
+      }
+    });
     replayPly = ply ?? (match.moveHistory?.length ?? 0);
     currentPage = "match";
     window.history.pushState({}, "", `/match/${match.code}`);
@@ -686,6 +987,11 @@ export function createApp(root) {
 
     postMatchSummary = nextSummary;
     postMatchTab = "summary";
+    warmMatchAnalysis(nextSummary.match, () => {
+      if (postMatchSummary?.key === nextSummary.key) {
+        render();
+      }
+    });
   }
 
   function ensureSelectedHistoryCode() {
@@ -743,6 +1049,131 @@ export function createApp(root) {
     return isDark ? tileSkin.tiles.dark : tileSkin.tiles.light;
   }
 
+  function getActiveState() {
+    return captureSequence?.displayState ?? state;
+  }
+
+  function promotionOutcomeForStep(piece, landingRow, variant) {
+    const promotionRow = piece.color === "white" ? 0 : variant.boardSize - 1;
+    const promotes = piece.kind === "man" && landingRow === promotionRow;
+
+    if (!promotes) {
+      return {
+        promotes: false,
+        nextKind: piece.kind,
+        deferredPromotion: false,
+      };
+    }
+
+    if (variant.stopAfterPromotionOnCapture || variant.continueAsKingAfterPromotionCapture) {
+      return {
+        promotes: true,
+        nextKind: "king",
+        deferredPromotion: false,
+      };
+    }
+
+    return {
+      promotes: true,
+      nextKind: piece.kind,
+      deferredPromotion: true,
+    };
+  }
+
+  function buildDisplayMoveOptions(candidateMoves, prefixLength, displayState) {
+    if (!candidateMoves?.length) {
+      return [];
+    }
+
+    const groups = new Map();
+
+    for (const move of candidateMoves) {
+      const nextSquare = move.path[prefixLength];
+
+      if (!nextSquare) {
+        continue;
+      }
+
+      const nextCaptureId = move.captures[prefixLength] ?? null;
+      const key = `${move.pieceId}:${nextSquare.row}:${nextSquare.col}:${nextCaptureId ?? ""}`;
+      const group = groups.get(key) ?? {
+        pieceId: move.pieceId,
+        to: nextSquare,
+        captures: nextCaptureId ? [nextCaptureId] : [],
+        isCapture: Boolean(nextCaptureId),
+        candidateMoves: [],
+      };
+      group.candidateMoves.push(move);
+      groups.set(key, group);
+    }
+
+    return Array.from(groups.values()).map((group) => {
+      const piece = displayState.pieces.find((entry) => entry.id === group.pieceId);
+      return {
+        ...group,
+        from: piece ? { row: piece.row, col: piece.col } : null,
+        pieceKindBefore: piece?.kind ?? "man",
+        path: [group.to],
+      };
+    });
+  }
+
+  function getDisplayMoves(activeState = getActiveState()) {
+    if (captureSequence) {
+      return buildDisplayMoveOptions(
+        captureSequence.candidateMoves,
+        captureSequence.prefixLength,
+        captureSequence.displayState,
+      );
+    }
+
+    return buildDisplayMoveOptions(getLegalMoves(activeState), 0, activeState);
+  }
+
+  function createDisplayStateAfterStep(displayState, option, variant) {
+    const movingPiece = displayState.pieces.find((piece) => piece.id === option.pieceId);
+
+    if (!movingPiece) {
+      return null;
+    }
+
+    const promotion = promotionOutcomeForStep(movingPiece, option.to.row, variant);
+    const nextPieces = displayState.pieces
+      .filter((piece) => !option.captures.includes(piece.id))
+      .map((piece) => {
+        if (piece.id !== option.pieceId) {
+          return { ...piece };
+        }
+
+        return {
+          ...piece,
+          row: option.to.row,
+          col: option.to.col,
+          kind: promotion.nextKind,
+        };
+      });
+
+    return {
+      ...displayState,
+      pieces: nextPieces,
+      lastMove: {
+        pieceId: option.pieceId,
+        from: option.from,
+        to: option.to,
+        path: [option.to],
+        captures: [...option.captures],
+        isCapture: option.isCapture,
+        pieceKindBefore: movingPiece.kind,
+        pieceKindAfter: promotion.nextKind,
+        promotes: promotion.promotes,
+      },
+    };
+  }
+
+  function clearCaptureSequence() {
+    captureSequence = null;
+  }
+
   function loadPublicMatch() {
     if (!initialMatchCode && currentPage !== "match") {
       return;
@@ -758,7 +1189,13 @@ export function createApp(root) {
 
     if (ephemeralMatch && matchCode === ephemeralMatch.code) {
       publicMatch = ephemeralMatch;
-      publicMatchAnalysis = analyzeMatchMoves(ephemeralMatch);
+      publicMatchAnalysis = getCachedMatchAnalysis(ephemeralMatch) ?? [];
+      warmMatchAnalysis(ephemeralMatch, (analysis) => {
+        if (publicMatch?.code === ephemeralMatch.code) {
+          publicMatchAnalysis = analysis;
+          render();
+        }
+      });
       replayPly = pendingReplayPly ?? (ephemeralMatch.moveHistory?.length ?? 0);
       pendingReplayPly = null;
       render();
@@ -768,7 +1205,13 @@ export function createApp(root) {
     getPublicMatch(matchCode)
       .then((payload) => {
         publicMatch = payload;
-        publicMatchAnalysis = analyzeMatchMoves(payload);
+        publicMatchAnalysis = getCachedMatchAnalysis(payload) ?? [];
+        warmMatchAnalysis(payload, (analysis) => {
+          if (publicMatch?.code === payload.code) {
+            publicMatchAnalysis = analysis;
+            render();
+          }
+        });
         replayPly = pendingReplayPly ?? (payload.moveHistory?.length ?? 0);
         pendingReplayPly = null;
         render();
@@ -783,6 +1226,11 @@ export function createApp(root) {
 
   function navigateTo(pageKey, { replace = false, search = "" } = {}) {
     currentPage = PAGES[pageKey] ? pageKey : "home";
+    if (currentPage !== "play" && currentPage !== "online") {
+      clearCaptureSequence();
+      selectedPieceId = null;
+      pendingMoves = [];
+    }
     const url = `${PAGES[currentPage]}${search}`;
 
     if (replace) {
@@ -797,6 +1245,9 @@ export function createApp(root) {
 
   function navigateToMatch(code, { replace = false } = {}) {
     currentPage = "match";
+    clearCaptureSequence();
+    selectedPieceId = null;
+    pendingMoves = [];
     const url = `/match/${normalizeRoomCode(code)}`;
 
     if (replace) {
@@ -828,7 +1279,25 @@ export function createApp(root) {
   }
 
   function syncRoom(room) {
+    const previousState = state;
+    const previousPlayers = onlineRoom?.players ?? room.players;
+
+    if (
+      onlineRoom &&
+      room.state?.lastMove &&
+      (room.moveHistory?.length ?? 0) > (onlineRoom.moveHistory?.length ?? 0)
+    ) {
+      queueBoardAnimation({
+        beforeState: previousState,
+        afterState: room.state,
+        move: room.state.lastMove,
+        beforeSkinContext: boardSkinContextForPlayers(previousPlayers),
+        afterSkinContext: boardSkinContextForPlayers(room.players),
+      });
+    }
+
     onlineRoom = room;
+    clearCaptureSequence();
     moveHistory = room.moveHistory ?? [];
     selectedPieceId = null;
     pendingMoves = [];
@@ -946,7 +1415,26 @@ export function createApp(root) {
     return gameMode === "ai" && nextState.currentPlayer === aiColor && !nextState.winner;
   }
 
-  function commitMove(move, actor) {
+  function scheduleCoachInsight(previousState, move) {
+    const requestId = ++coachRequestId;
+
+    window.setTimeout(() => {
+      const insight = analyzePlayedMove(previousState, move, {
+        difficulty: aiDifficulty,
+      });
+
+      if (requestId !== coachRequestId) {
+        return;
+      }
+
+      coachInsight = insight;
+      render();
+    }, 0);
+  }
+
+  function commitMove(move, actor, options = {}) {
+    const { skipAnimation = false } = options;
+
     if (gameMode === "online" && onlineRoom?.code) {
       isAIThinking = true;
       render();
@@ -969,7 +1457,18 @@ export function createApp(root) {
     }
 
     const previousState = state;
+    const previousSkinContext = boardSkinContextForCurrentView();
     const nextState = applyMove(state, move);
+
+    if (!skipAnimation) {
+      queueBoardAnimation({
+        beforeState: previousState,
+        afterState: nextState,
+        move,
+        beforeSkinContext: previousSkinContext,
+        afterSkinContext: previousSkinContext,
+      });
+    }
 
     moveHistory = [
       {
@@ -983,9 +1482,7 @@ export function createApp(root) {
     ];
 
     if (actor === "human") {
-      coachInsight = analyzePlayedMove(previousState, move, {
-        difficulty: aiDifficulty,
-      });
+      scheduleCoachInsight(previousState, move);
     }
 
     selectedPieceId = null;
@@ -1047,6 +1544,52 @@ export function createApp(root) {
     }
   }
 
+  function advanceCaptureSequence(option, actor) {
+    const activeState = getActiveState();
+    const variant = getVariantConfig(activeState.variant);
+    const nextDisplayState = createDisplayStateAfterStep(activeState, option, variant);
+
+    if (!nextDisplayState) {
+      return;
+    }
+
+    const skinContext = boardSkinContextForCurrentView();
+
+    queueBoardAnimation({
+      beforeState: activeState,
+      afterState: nextDisplayState,
+      move: nextDisplayState.lastMove,
+      beforeSkinContext: skinContext,
+      afterSkinContext: skinContext,
+    });
+
+    const previousSequence = captureSequence;
+    const nextPrefixLength = (previousSequence?.prefixLength ?? 0) + 1;
+    const nextCandidateMoves = option.candidateMoves;
+    const shouldContinue = nextCandidateMoves.some((move) => move.path.length > nextPrefixLength);
+
+    if (shouldContinue) {
+      captureSequence = {
+        baseState: previousSequence?.baseState ?? state,
+        displayState: nextDisplayState,
+        candidateMoves: nextCandidateMoves,
+        prefixLength: nextPrefixLength,
+        pieceId: option.pieceId,
+      };
+      selectedPieceId = option.pieceId;
+      pendingMoves = [];
+      render();
+      return;
+    }
+
+    clearCaptureSequence();
+    selectedPieceId = null;
+    pendingMoves = [];
+    commitMove(nextCandidateMoves[0], actor, {
+      skipAnimation: true,
+    });
+  }
+
   function scheduleAIMove() {
     clearAITimer();
 
@@ -1097,8 +1640,8 @@ export function createApp(root) {
   function setState(nextState) {
     state = nextState;
     pendingMoves = [];
-    const moves = getLegalMoves(state);
-    const selectedMoves = selectedPieceId ? getLegalMovesForPiece(state, selectedPieceId) : [];
+    const moves = getDisplayMoves(state);
+    const selectedMoves = selectedPieceId ? moves.filter((move) => move.pieceId === selectedPieceId) : [];
 
     if (selectedPieceId && selectedMoves.length === 0) {
       selectedPieceId = null;
@@ -1110,6 +1653,8 @@ export function createApp(root) {
 
   function onSelectVariant(variantKey) {
     clearAITimer();
+    coachRequestId += 1;
+    clearCaptureSequence();
     coachInsight = null;
     moveHistory = [];
     postMatchSummary = null;
@@ -1126,6 +1671,8 @@ export function createApp(root) {
 
   function onModeChange(nextMode) {
     clearAITimer();
+    coachRequestId += 1;
+    clearCaptureSequence();
     disconnectRoomSocket();
     if (nextMode !== "online") {
       onlineRoom = null;
@@ -1177,6 +1724,8 @@ export function createApp(root) {
 
   function leaveOnlineRoom() {
     disconnectRoomSocket();
+    coachRequestId += 1;
+    clearCaptureSequence();
     onlineRoom = null;
     onlineError = "";
     gameMode = "local";
@@ -1189,6 +1738,9 @@ export function createApp(root) {
   }
 
   function onSquareClick(row, col) {
+    const activeState = getActiveState();
+    const activeMoves = getDisplayMoves(activeState);
+
     if (state.winner || isAIThinking || isAITurn()) {
       return;
     }
@@ -1197,17 +1749,17 @@ export function createApp(root) {
       gameMode === "online" &&
       (!onlineRoom?.code ||
         onlineRoom.status !== "playing" ||
-        onlineRoom.currentColor !== state.currentPlayer)
+        onlineRoom.currentColor !== activeState.currentPlayer)
     ) {
       return;
     }
 
-    const piece = getPieceAt(state, row, col);
-    const pieceMoves = piece ? getLegalMovesForPiece(state, piece.id) : [];
+    const piece = getPieceAt(activeState, row, col);
+    const pieceMoves = piece ? activeMoves.filter((move) => move.pieceId === piece.id) : [];
 
-    if (piece && piece.color === state.currentPlayer && pieceMoves.length > 0) {
+    if (piece && piece.color === activeState.currentPlayer && pieceMoves.length > 0) {
       selectedPieceId = piece.id;
-      render(getLegalMoves(state), pieceMoves);
+      render(activeMoves, pieceMoves);
       return;
     }
 
@@ -1215,7 +1767,7 @@ export function createApp(root) {
       return;
     }
 
-    const selectedMoves = getLegalMovesForPiece(state, selectedPieceId);
+    const selectedMoves = activeMoves.filter((move) => move.pieceId === selectedPieceId);
     const targetMoves = selectedMoves.filter((candidate) =>
       sameSquare(candidate.to, { row, col }),
     );
@@ -1224,13 +1776,15 @@ export function createApp(root) {
       return;
     }
 
-    if (targetMoves.length > 1) {
-      pendingMoves = targetMoves;
-      render(getLegalMoves(state), selectedMoves);
+    const chosenMove = targetMoves[0];
+    const requiresSequence = captureSequence || (chosenMove.isCapture && chosenMove.candidateMoves.some((move) => move.path.length > 1));
+
+    if (requiresSequence) {
+      advanceCaptureSequence(chosenMove, "human");
       return;
     }
 
-    commitMove(targetMoves[0], "human");
+    commitMove(chosenMove.candidateMoves[0], "human");
   }
 
   function onMoveChoiceClick(index) {
@@ -1240,7 +1794,12 @@ export function createApp(root) {
       return;
     }
 
-    commitMove(move, "human");
+    if (captureSequence || (move.isCapture && move.candidateMoves?.some((candidate) => candidate.path.length > 1))) {
+      advanceCaptureSequence(move, "human");
+      return;
+    }
+
+    commitMove(move.candidateMoves?.[0] ?? move, "human");
   }
 
   function renderAuthPanel() {
@@ -1547,7 +2106,16 @@ export function createApp(root) {
 
   function renderHistoryPanel() {
     const selectedMatch = ensureSelectedHistoryCode();
-    const selectedAnalysis = selectedMatch ? analyzeMatchMoves(selectedMatch) : [];
+    const selectedAnalysis = selectedMatch ? getCachedMatchAnalysis(selectedMatch) ?? [] : [];
+
+    if (selectedMatch && !selectedAnalysis.length && selectedMatch.moveHistory?.length) {
+      warmMatchAnalysis(selectedMatch, () => {
+        if (selectedHistoryCode === selectedMatch.code && currentPage === "profile") {
+          render();
+        }
+      });
+    }
+
     const filteredEntries = selectedAnalysis.filter((entry) =>
       historyVerdictFilter === "all" ? true : entry.insight?.verdict === historyVerdictFilter,
     );
@@ -1580,7 +2148,16 @@ export function createApp(root) {
                   ${matchHistory
                     .map((match) => {
                       const isSelected = selectedMatch?.code === match.code;
-                      const matchAnalysis = analyzeMatchMoves(match);
+                      const matchAnalysis = getCachedMatchAnalysis(match) ?? [];
+
+                      if (!matchAnalysis.length && match.moveHistory?.length) {
+                        warmMatchAnalysis(match, () => {
+                          if (currentPage === "profile") {
+                            render();
+                          }
+                        });
+                      }
+
                       const matchSummary = summarizeMatchAnalysis(matchAnalysis);
 
                       return `
@@ -1667,7 +2244,18 @@ export function createApp(root) {
     const deltaText = delta ? `${delta.change >= 0 ? "+" : ""}${delta.change} ELO` : null;
     const ratingText = delta ? `${delta.before} -> ${delta.after}` : null;
     const reviewMatch = postMatchSummary.match ?? null;
-    const reviewAnalysis = reviewMatch ? analyzeMatchMoves(reviewMatch) : [];
+    const summaryKey = postMatchSummary.key;
+    const reviewAnalysis = reviewMatch ? getCachedMatchAnalysis(reviewMatch) ?? [] : [];
+    const isAnalysisLoading = Boolean(reviewMatch?.moveHistory?.length) && reviewAnalysis.length === 0;
+
+    if (reviewMatch && isAnalysisLoading) {
+      warmMatchAnalysis(reviewMatch, () => {
+        if (postMatchSummary?.key === summaryKey) {
+          render();
+        }
+      });
+    }
+
     const colorStats = analysisStatsByColor(reviewAnalysis);
     const currentSide = gameMode === "online" ? onlineRoom?.currentColor ?? "white" : aiColor === "white" ? "black" : "white";
     const opponentSide = currentSide === "white" ? "black" : "white";
@@ -1699,7 +2287,16 @@ export function createApp(root) {
             <button type="button" class="route-btn post-match-tab ${postMatchTab === "advantage" ? "page-nav__btn--active" : ""}" data-post-match-tab="advantage">Advantage</button>
           </div>
           ${
-            postMatchTab === "summary"
+            isAnalysisLoading
+              ? `
+                <div class="routes__hint">
+                  Analyzing the finished game. The review will fill in automatically in a moment.
+                </div>
+                <div class="review-chart post-match-chart post-match-chart--loading">
+                  ${Array.from({ length: 18 }, () => `<div class="review-bar review-bar--loading"></div>`).join("")}
+                </div>
+              `
+              : postMatchTab === "summary"
               ? `
                 <div class="post-match-summary">
                   <div class="post-match-side">
@@ -1898,14 +2495,15 @@ export function createApp(root) {
     const analysisSummary = summarizeMatchAnalysis(publicMatchAnalysis);
     const activeAnalysis = replayPly > 0 ? publicMatchAnalysis[replayPly - 1] ?? null : null;
     const variant = getVariantConfig(match.variant);
+    const replayBoardIndex = createBoardIndex(replayState);
     const colLabels = getColumnLabels(variant.boardSize);
     const rowLabels = getRowLabels(variant.boardSize);
-    const whitePieces = replayState.pieces.filter((piece) => piece.color === "white").length;
-    const blackPieces = replayState.pieces.filter((piece) => piece.color === "black").length;
+    const whitePieces = replayBoardIndex.whitePieces;
+    const blackPieces = replayBoardIndex.blackPieces;
     const boardMarkup = Array.from({ length: variant.boardSize * variant.boardSize }, (_, index) => {
       const row = Math.floor(index / variant.boardSize);
       const col = index % variant.boardSize;
-      const piece = getPieceAt(replayState, row, col);
+      const piece = replayBoardIndex.get(row, col);
       const isDark = (row + col) % 2 === 1;
 
       return `
@@ -2017,19 +2615,24 @@ export function createApp(root) {
     };
   }
 
-  function render(allMoves = getLegalMoves(state), selectedMoves = []) {
-    const variant = getVariantConfig(state.variant);
+  function render(allMoves = null, selectedMoves = null) {
+    const activeState = getActiveState();
+    const resolvedAllMoves = allMoves ?? getDisplayMoves(activeState);
+    const resolvedSelectedMoves =
+      selectedMoves ?? (selectedPieceId ? resolvedAllMoves.filter((move) => move.pieceId === selectedPieceId) : []);
+    const variant = getVariantConfig(activeState.variant);
     const skin = getSkinConfig(skinKey);
     const boardSkinContext = boardSkinContextForCurrentView();
+    const boardIndex = createBoardIndex(activeState);
     const title = variantDisplayName(variant);
     const isArenaPage = currentPage === "play" || currentPage === "online";
     const moveTargets = new Map(
-      selectedMoves.map((move) => [`${move.to.row}:${move.to.col}`, move]),
+      resolvedSelectedMoves.map((move) => [`${move.to.row}:${move.to.col}`, move]),
     );
-    const selectablePieces = new Set(allMoves.map((move) => move.pieceId));
-    const capturePressure = allMoves.filter((move) => move.isCapture).length;
-    const whitePieces = state.pieces.filter((piece) => piece.color === "white").length;
-    const blackPieces = state.pieces.filter((piece) => piece.color === "black").length;
+    const selectablePieces = new Set(resolvedAllMoves.map((move) => move.pieceId));
+    const capturePressure = resolvedAllMoves.filter((move) => move.isCapture).length;
+    const whitePieces = boardIndex.whitePieces;
+    const blackPieces = boardIndex.blackPieces;
     const colLabels = getColumnLabels(variant.boardSize);
     const rowLabels = getRowLabels(variant.boardSize);
     const currentVariantAIStatus = aiStatus?.variants?.[state.variant];
@@ -2039,13 +2642,13 @@ export function createApp(root) {
         : gameMode === "online"
           ? `Online ${onlineRoom?.code ?? "lobby"}`
           : "Local duel";
-    const activeLabel = state.winner
-      ? `${playerDisplayName(state.winner)} wins`
-      : `${playerDisplayName(state.currentPlayer)} to act`;
+    const activeLabel = activeState.winner
+      ? `${playerDisplayName(activeState.winner)} wins`
+      : `${playerDisplayName(activeState.currentPlayer)} to act`;
     const boardMarkup = Array.from({ length: variant.boardSize * variant.boardSize }, (_, index) => {
       const row = Math.floor(index / variant.boardSize);
       const col = index % variant.boardSize;
-      const piece = getPieceAt(state, row, col);
+      const piece = boardIndex.get(row, col);
       const isDark = (row + col) % 2 === 1;
       const isSelected = piece && piece.id === selectedPieceId;
       const isTarget = moveTargets.has(`${row}:${col}`);
@@ -2166,7 +2769,7 @@ export function createApp(root) {
 
       root.innerHTML = `
         <main
-          class="shell shell--${state.variant} shell--${renderMode} shell--skin-${skinKey}"
+          class="shell shell--${activeState.variant} shell--${renderMode} shell--skin-${skinKey}"
           style="--skin-ornament-image: url('${skin.ornament}'); --skin-backdrop-lite: url('${skin.backdropLite}'); --skin-backdrop-3d: url('${skin.backdrop3d}'); --panel-border: ${skin.palette?.panelBorder ?? "rgba(104, 232, 174, 0.18)"}; --ink: ${skin.palette?.ink ?? "#d8ffd8"}; --muted: ${skin.palette?.muted ?? "#90b3a2"}; --hot: ${skin.palette?.hot ?? "#67f5ad"}; --hot-soft: ${skin.palette?.hotSoft ?? "rgba(103, 245, 173, 0.14)"}; --warning: ${skin.palette?.warning ?? "#ffcb6b"}; --wood-mid: ${skin.palette?.woodMid ?? "#4f3424"}; --board-dark: ${skin.palette?.boardDark ?? "#103728"}; --board-light: ${skin.palette?.boardLight ?? "#1a5a40"}; --body-glow-a: ${skin.palette?.bodyGlowA ?? "rgba(63, 171, 133, 0.22)"}; --body-glow-b: ${skin.palette?.bodyGlowB ?? "rgba(194, 122, 61, 0.14)"};"
         >
           <div class="marquee">
@@ -2188,7 +2791,7 @@ export function createApp(root) {
 
       root.innerHTML = `
       <main
-        class="shell shell--${state.variant} shell--${renderMode} shell--skin-${skinKey}"
+        class="shell shell--${activeState.variant} shell--${renderMode} shell--skin-${skinKey}"
         style="--skin-ornament-image: url('${skin.ornament}'); --skin-backdrop-lite: url('${skin.backdropLite}'); --skin-backdrop-3d: url('${skin.backdrop3d}'); --panel-border: ${skin.palette?.panelBorder ?? "rgba(104, 232, 174, 0.18)"}; --ink: ${skin.palette?.ink ?? "#d8ffd8"}; --muted: ${skin.palette?.muted ?? "#90b3a2"}; --hot: ${skin.palette?.hot ?? "#67f5ad"}; --hot-soft: ${skin.palette?.hotSoft ?? "rgba(103, 245, 173, 0.14)"}; --warning: ${skin.palette?.warning ?? "#ffcb6b"}; --wood-mid: ${skin.palette?.woodMid ?? "#4f3424"}; --board-dark: ${skin.palette?.boardDark ?? "#103728"}; --board-light: ${skin.palette?.boardLight ?? "#1a5a40"}; --body-glow-a: ${skin.palette?.bodyGlowA ?? "rgba(63, 171, 133, 0.22)"}; --body-glow-b: ${skin.palette?.bodyGlowB ?? "rgba(194, 122, 61, 0.14)"};"
       >
         <div class="marquee">
@@ -2222,7 +2825,7 @@ export function createApp(root) {
                     .map(
                       (entry) =>
                         `<option value="${entry.key}" ${
-                          entry.key === state.variant ? "selected" : ""
+                          entry.key === activeState.variant ? "selected" : ""
                         }>${variantDisplayName(entry)}</option>`,
                     )
                     .join("")}
@@ -2254,11 +2857,11 @@ export function createApp(root) {
             <div class="status-grid">
               <div class="stat">
                 <span class="stat__label">Turn</span>
-                <strong class="stat__value">${state.turn}</strong>
+                <strong class="stat__value">${activeState.turn}</strong>
               </div>
               <div class="stat">
                 <span class="stat__label">Active side</span>
-                <strong class="stat__value">${playerDisplayName(state.currentPlayer)}</strong>
+                <strong class="stat__value">${playerDisplayName(activeState.currentPlayer)}</strong>
               </div>
               <div class="stat">
                 <span class="stat__label">Match mode</span>
@@ -2281,7 +2884,7 @@ export function createApp(root) {
               <div class="stat">
                 <span class="stat__label">Winner</span>
                 <strong class="stat__value">${
-                  state.winner ? playerDisplayName(state.winner) : "None"
+                  activeState.winner ? playerDisplayName(activeState.winner) : "None"
                 }</strong>
               </div>
             </div>
@@ -2358,8 +2961,10 @@ export function createApp(root) {
           <div class="stage__footer">
             <div class="stage-note">
               ${
-                selectedMoves.length > 0
-                  ? "Target squares are lit. If several capture routes share one square, choose the route in the right panel."
+                resolvedSelectedMoves.length > 0
+                  ? captureSequence
+                    ? "Capture chain in progress. Continue with the same piece until the sequence is complete."
+                    : "Target squares are lit. Continue the capture chain one jump at a time."
                   : "Select a highlighted piece to inspect legal routes."
               }
             </div>
@@ -2399,8 +3004,10 @@ export function createApp(root) {
                 : `
                   <div class="routes__hint">
                     ${
-                      selectedMoves.length > 0
-                        ? "A route panel appears here when the same landing square hides multiple legal chains."
+                      resolvedSelectedMoves.length > 0
+                        ? captureSequence
+                          ? "Chain options are shown directly on the board. Keep capturing with the selected piece."
+                          : "Capture choices are shown directly on the board. Multi-captures continue step by step."
                         : "No forked routes yet. The next tactical branch will surface here."
                     }
                   </div>
@@ -2747,6 +3354,8 @@ export function createApp(root) {
         onMoveChoiceClick(Number(button.dataset.routeIndex));
       });
     });
+
+    playPendingBoardAnimation();
   }
 
   loadAIStatus();
@@ -2756,6 +3365,12 @@ export function createApp(root) {
   loadPublicMatch();
   window.addEventListener("popstate", () => {
     currentPage = pageKeyFromPathname(window.location.pathname);
+
+    if (currentPage !== "play" && currentPage !== "online") {
+      clearCaptureSequence();
+      selectedPieceId = null;
+      pendingMoves = [];
+    }
 
     if (currentPage === "online") {
       gameMode = "online";

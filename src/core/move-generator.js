@@ -2,10 +2,11 @@ import {
   isInsideBoard,
   moveKey,
   opponentOf,
-  pieceAt,
   shouldPromote,
 } from "./helpers.js";
 import { getVariantConfig } from "./variants.js";
+
+const LEGAL_MOVES_CACHE = new WeakMap();
 
 const DIAGONALS = [
   [-1, -1],
@@ -47,7 +48,27 @@ function createMove(piece, path, captures, kind, promotes) {
   };
 }
 
-function getSimpleMovesForMan(piece, state, variant) {
+function createOccupancyResolver(pieces) {
+  const index = new Map();
+
+  for (const piece of pieces) {
+    index.set(`${piece.row}:${piece.col}`, piece);
+  }
+
+  return {
+    get(row, col, capturedIds = new Set(), movingPieceId = null) {
+      const piece = index.get(`${row}:${col}`);
+
+      if (!piece || piece.id === movingPieceId || capturedIds.has(piece.id)) {
+        return null;
+      }
+
+      return piece;
+    },
+  };
+}
+
+function getSimpleMovesForMan(piece, variant, occupancy) {
   const directions = expandDirections(variant.menMoveDirections, piece.color);
   const moves = [];
 
@@ -59,7 +80,7 @@ function getSimpleMovesForMan(piece, state, variant) {
       continue;
     }
 
-    if (pieceAt(state.pieces, row, col)) {
+    if (occupancy.get(row, col)) {
       continue;
     }
 
@@ -79,7 +100,7 @@ function getSimpleMovesForKing(piece, state, variant) {
     let row = piece.row + dr;
     let col = piece.col + dc;
 
-    while (isInsideBoard(variant.boardSize, row, col) && !pieceAt(state.pieces, row, col)) {
+    while (isInsideBoard(variant.boardSize, row, col) && !state.occupancy.get(row, col)) {
       moves.push(createMove(piece, [{ row, col }], [], piece.kind, false));
 
       if (variant.kingsMoveRange === "short") {
@@ -104,6 +125,7 @@ function exploreManCaptures({
   capturedIds,
   path,
   captures,
+  occupancy,
 }) {
   const results = [];
   let extended = false;
@@ -119,6 +141,7 @@ function exploreManCaptures({
         capturedIds,
         path,
         captures,
+        occupancy,
       });
     }
   }
@@ -135,8 +158,8 @@ function exploreManCaptures({
       continue;
     }
 
-    const jumped = pieceAt(state.pieces, midRow, midCol, capturedIds, piece.id);
-    const landingPiece = pieceAt(state.pieces, landingRow, landingCol, capturedIds, piece.id);
+    const jumped = occupancy.get(midRow, midCol, capturedIds, piece.id);
+    const landingPiece = occupancy.get(landingRow, landingCol, capturedIds, piece.id);
 
     if (!jumped || jumped.color === piece.color || landingPiece) {
       continue;
@@ -173,6 +196,7 @@ function exploreManCaptures({
       capturedIds: nextCapturedIds,
       path: [...path, { row: landingRow, col: landingCol }],
       captures: [...captures, jumped.id],
+      occupancy,
     });
 
     if (childMoves.length > 0) {
@@ -206,6 +230,7 @@ function exploreFlyingKingCaptures({
   capturedIds,
   path,
   captures,
+  occupancy,
 }) {
   const results = [];
   let extended = false;
@@ -216,7 +241,7 @@ function exploreFlyingKingCaptures({
     let jumped = null;
 
     while (isInsideBoard(variant.boardSize, scanRow, scanCol)) {
-      const occupant = pieceAt(state.pieces, scanRow, scanCol, capturedIds, piece.id);
+      const occupant = occupancy.get(scanRow, scanCol, capturedIds, piece.id);
 
       if (!occupant) {
         if (jumped) {
@@ -233,6 +258,7 @@ function exploreFlyingKingCaptures({
             capturedIds: nextCapturedIds,
             path: [...path, { row: scanRow, col: scanCol }],
             captures: [...captures, jumped.id],
+            occupancy,
           });
 
           if (childMoves.length > 0) {
@@ -272,7 +298,7 @@ function exploreFlyingKingCaptures({
   return results;
 }
 
-function getCaptureMovesForPiece(piece, state, variant) {
+function getCaptureMovesForPiece(piece, state, variant, occupancy) {
   if (piece.kind === "king" && variant.kingsCaptureRange === "long") {
     return exploreFlyingKingCaptures({
       variant,
@@ -283,6 +309,7 @@ function getCaptureMovesForPiece(piece, state, variant) {
       capturedIds: new Set(),
       path: [],
       captures: [],
+      occupancy,
     });
   }
 
@@ -296,6 +323,7 @@ function getCaptureMovesForPiece(piece, state, variant) {
     capturedIds: new Set(),
     path: [],
     captures: [],
+    occupancy,
   });
 }
 
@@ -304,15 +332,21 @@ function getSimpleMovesForPiece(piece, state, variant) {
     return getSimpleMovesForKing(piece, state, variant);
   }
 
-  return getSimpleMovesForMan(piece, state, variant);
+  return getSimpleMovesForMan(piece, variant, state.occupancy);
 }
 
-export function getLegalMoves(state) {
+function computeLegalMovesForColor(state, color) {
   const variant = getVariantConfig(state.variant);
-  const activePieces = state.pieces.filter((piece) => piece.color === state.currentPlayer);
+  const occupancy = createOccupancyResolver(state.pieces);
+  const activePieces = state.pieces.filter((piece) => piece.color === color);
+  const resolvedState = {
+    ...state,
+    currentPlayer: color,
+    occupancy,
+  };
 
   const captureMoves = activePieces.flatMap((piece) =>
-    getCaptureMovesForPiece(piece, state, variant),
+    getCaptureMovesForPiece(piece, resolvedState, variant, occupancy),
   );
 
   if (captureMoves.length > 0) {
@@ -324,7 +358,26 @@ export function getLegalMoves(state) {
     return captureMoves.filter((move) => move.captures.length === maxCaptures);
   }
 
-  return activePieces.flatMap((piece) => getSimpleMovesForPiece(piece, state, variant));
+  return activePieces.flatMap((piece) => getSimpleMovesForPiece(piece, resolvedState, variant));
+}
+
+function getLegalMovesForColor(state, color) {
+  let byColor = LEGAL_MOVES_CACHE.get(state);
+
+  if (!byColor) {
+    byColor = new Map();
+    LEGAL_MOVES_CACHE.set(state, byColor);
+  }
+
+  if (!byColor.has(color)) {
+    byColor.set(color, computeLegalMovesForColor(state, color));
+  }
+
+  return byColor.get(color);
+}
+
+export function getLegalMoves(state) {
+  return getLegalMovesForColor(state, state.currentPlayer);
 }
 
 export function getLegalMovesForPiece(state, pieceId) {
@@ -332,7 +385,7 @@ export function getLegalMovesForPiece(state, pieceId) {
 }
 
 export function hasAnyLegalMove(state, color) {
-  return getLegalMoves({ ...state, currentPlayer: color }).length > 0;
+  return getLegalMovesForColor(state, color).length > 0;
 }
 
 export function findLegalMove(state, move) {
